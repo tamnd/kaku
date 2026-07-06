@@ -15,6 +15,7 @@ import (
 
 	"github.com/tamnd/kaku/pkg/checkpoint"
 	"github.com/tamnd/kaku/pkg/engine"
+	"github.com/tamnd/kaku/pkg/tool/builtin"
 	"github.com/tamnd/kaku/pkg/session"
 	"github.com/tamnd/kaku/pkg/tui"
 )
@@ -92,8 +93,9 @@ func main() {
 	fl.StringVar(&o.sessionID, "session", "", "continue a specific session id")
 	fl.IntVar(&o.maxTurns, "max-turns", 0, "cap on model turns per run")
 	fl.BoolVar(&o.noMCP, "no-mcp", false, "skip connecting configured MCP servers")
+	fl.BoolVar(&o.sandbox, "sandbox", false, "confine bash writes to the working directory (Seatbelt on macOS, landlock on Linux)")
 
-	root.AddCommand(sessionsCmd(&o), rewindCmd(&o))
+	root.AddCommand(sessionsCmd(&o), rewindCmd(&o), sandboxExecCmd())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -172,6 +174,19 @@ func sessionsCmd(o *options) *cobra.Command {
 				fmt.Println(m.String())
 			}
 			return nil
+		},
+	}
+}
+
+// sandboxExecCmd is the hidden Linux shim: --sandbox re-execs kaku through
+// it so landlock is applied inside the child before bash starts.
+func sandboxExecCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "sandbox-exec <workdir> <command>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return builtin.SandboxExec(args[0], args[1])
 		},
 	}
 }

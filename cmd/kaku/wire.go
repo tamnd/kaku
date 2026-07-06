@@ -36,6 +36,7 @@ type options struct {
 	resume    bool
 	maxTurns  int
 	noMCP     bool
+	sandbox   bool
 }
 
 type runtime struct {
@@ -123,6 +124,9 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	}
 
 	reg := tool.NewRegistry(builtin.All(dir)...)
+	if o.sandbox {
+		reg.Add(builtin.BashSandboxed(dir))
+	}
 
 	rt := &runtime{cfg: cfg, dir: dir}
 	if !o.noMCP && len(cfg.MCPServers) > 0 {

@@ -13,7 +13,7 @@ func All(workdir string) []tool.Tool {
 		readTool(workdir),
 		writeTool(workdir),
 		editTool(workdir),
-		bashTool(workdir),
+		bashTool(workdir, false),
 		grepTool(workdir),
 		globTool(workdir),
 		lsTool(workdir),

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"syscall"
 	"time"
 
 	"github.com/tamnd/kaku/pkg/tool"
@@ -20,7 +19,13 @@ const (
 	bashTailOutput     = 10000
 )
 
-func bashTool(workdir string) tool.Tool {
+// BashSandboxed is the bash tool with OS-level write confinement: Seatbelt
+// on macOS, landlock on Linux. Registering it replaces the plain bash tool.
+func BashSandboxed(workdir string) tool.Tool {
+	return bashTool(workdir, true)
+}
+
+func bashTool(workdir string, sandbox bool) tool.Tool {
 	return tool.Func{
 		ToolName: "bash",
 		Desc:     "Run a bash command in the working directory and return its combined stdout and stderr. Commands time out after 120 seconds by default (timeout_ms caps at 600000); long output is truncated in the middle.",
@@ -53,15 +58,16 @@ func bashTool(workdir string) tool.Tool {
 			ctx2, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 
-			cmd := exec.CommandContext(ctx2, "bash", "-c", in.Command)
-			cmd.Dir = workdir
-			// Run the command in its own process group so a timeout kills
-			// the whole tree, not just the shell.
-			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-			cmd.Cancel = func() error {
-				return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			argv := []string{"bash", "-c", in.Command}
+			if sandbox {
+				var err error
+				if argv, err = sandboxArgv(workdir, in.Command); err != nil {
+					return "", fmt.Errorf("bash: sandbox unavailable: %w", err)
+				}
 			}
-			cmd.WaitDelay = 5 * time.Second
+			cmd := exec.CommandContext(ctx2, argv[0], argv[1:]...)
+			cmd.Dir = workdir
+			setupProcessGroup(cmd)
 
 			out, err := cmd.CombinedOutput()
 			text := truncateOutput(string(out))

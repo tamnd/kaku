@@ -145,7 +145,7 @@ func TestEdit(t *testing.T) {
 func TestBash(t *testing.T) {
 	dir := t.TempDir()
 
-	out := mustRun(t, bashTool(dir), `{"command":"echo hello && pwd"}`)
+	out := mustRun(t, bashTool(dir, false), `{"command":"echo hello && pwd"}`)
 	if !strings.Contains(out, "hello") {
 		t.Errorf("out = %q", out)
 	}
@@ -156,19 +156,19 @@ func TestBash(t *testing.T) {
 		t.Errorf("out = %q, want workdir %q", out, dir)
 	}
 
-	out = mustRun(t, bashTool(dir), `{"command":"true"}`)
+	out = mustRun(t, bashTool(dir, false), `{"command":"true"}`)
 	if out != "(no output)" {
 		t.Errorf("out = %q", out)
 	}
 
 	// Failures carry the exit status and output in the error.
-	_, err := run(t, bashTool(dir), `{"command":"echo oops >&2; exit 3"}`)
+	_, err := run(t, bashTool(dir, false), `{"command":"echo oops >&2; exit 3"}`)
 	if err == nil || !strings.Contains(err.Error(), "exit status 3") || !strings.Contains(err.Error(), "oops") {
 		t.Errorf("err = %v", err)
 	}
 
 	// Timeout kills the command.
-	_, err = run(t, bashTool(dir), `{"command":"sleep 5","timeout_ms":200}`)
+	_, err = run(t, bashTool(dir, false), `{"command":"sleep 5","timeout_ms":200}`)
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Errorf("err = %v", err)
 	}

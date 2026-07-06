@@ -41,6 +41,12 @@ Servers that speak the newer OpenAI Responses API work too:
 kaku --provider responses --base-url http://127.0.0.1:8000/v1 --model gpt-5
 ```
 
+## Sandbox
+
+`kaku --sandbox` confines bash writes to the working directory and temp locations, using Seatbelt on macOS and landlock on Linux.
+Reads and network stay open, so builds and tests keep working.
+On Linux kernels without landlock the flag degrades to no confinement.
+
 ## Checkpoints
 
 In a git repository, kaku snapshots the working tree before the first file-changing tool call of every turn.
