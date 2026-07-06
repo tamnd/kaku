@@ -16,10 +16,18 @@ Everything is a file and everything is a plugin.
 - Permissions are explicit: plan, ask, or auto, with allow and deny rules in settings.
 - The engine is a plain Go package; the CLI, TUI, and server are thin adapters over it.
 
-## Status
+Docs live at [kaku.tamnd.com](https://kaku.tamnd.com).
 
-Early development.
-The core loop, builtin tools, providers, sessions, skills, hooks, MCP client, and TUI are landing now.
+## Install
+
+```sh
+brew install tamnd/tap/kaku                # macOS, Linux
+scoop bucket add tamnd https://github.com/tamnd/scoop-bucket && scoop install kaku
+go install github.com/tamnd/kaku/cmd/kaku@latest
+docker run -it -v "$PWD:/work" -e ANTHROPIC_API_KEY ghcr.io/tamnd/kaku
+```
+
+Signed apt and dnf repositories and prebuilt archives are covered in the [installation docs](https://kaku.tamnd.com/getting-started/installation/).
 
 ## Quick start
 
