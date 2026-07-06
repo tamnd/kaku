@@ -1,0 +1,10 @@
+title       = "kaku"
+baseURL     = "https://kaku.tamnd.com/"
+description = "Kaku (書く, to write) is a coding agent in one static Go binary. It runs against the Anthropic API or any OpenAI-compatible endpoint, keeps sessions as JSONL and skills as Markdown, and exposes the same engine as a TUI, a CLI, an HTTP server, an MCP server, and a Go package."
+contentDir  = "content"
+outputDir   = "public"
+theme       = "tago-doks"
+syntaxHighlight = "true"
+
+[params]
+github = "https://github.com/tamnd/kaku"

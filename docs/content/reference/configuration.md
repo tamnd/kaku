@@ -1,0 +1,73 @@
+---
+title: "Configuration"
+description: "Every key in config.json and settings.json, and the order they merge in."
+weight: 20
+---
+
+Configuration merges in three layers, later wins:
+
+1. Built-in defaults.
+2. `~/.kaku/config.json` (global).
+3. `.kaku/settings.json` in the project.
+
+Command-line flags override all three for that run.
+
+## All keys
+
+```json
+{
+  "provider": "anthropic",
+  "model": "claude-sonnet-5",
+  "small_model": "claude-haiku-4-5",
+  "base_url": "",
+  "api_key_env": "ANTHROPIC_API_KEY",
+  "max_tokens": 0,
+  "max_turns": 0,
+
+  "permissions": {
+    "mode": "ask",
+    "allow": ["bash(go test *)"],
+    "deny": ["bash(rm -rf *)"]
+  },
+
+  "mcpServers": {
+    "docs": {"command": "docs-mcp", "args": ["--root", "./docs"], "env": {"TOKEN": "..."}},
+    "tracker": {"url": "https://tracker.example.com/mcp"}
+  },
+
+  "hooks": {
+    "pre_tool": [{"match": "bash", "command": "./scripts/check.sh"}]
+  }
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `provider` | `anthropic`, `openai`, or `responses`. |
+| `model` | The main model. |
+| `small_model` | Cheap model for compaction summaries and other utility calls; falls back to `model`. |
+| `base_url` | API endpoint override, for local servers and proxies. |
+| `api_key_env` | Name of the environment variable holding the key. Switching provider by flag also switches the default (`ANTHROPIC_API_KEY` or `OPENAI_API_KEY`). |
+| `max_tokens` | Response token cap per model call. |
+| `max_turns` | Cap on model turns per run. |
+| `permissions.mode` | `plan`, `ask`, or `auto`. |
+| `permissions.allow`, `permissions.deny` | Rules in `tool` or `tool(arg-glob)` form; deny wins over allow, allow wins over the mode. |
+| `mcpServers.<name>.command/args/env` | Spawn this MCP server over stdio. |
+| `mcpServers.<name>.url` | Dial this MCP server over streamable HTTP. |
+| `hooks.<event>` | Commands to run on `pre_tool`, `post_tool`, `user_prompt`, or `stop`; `match` is a glob on the tool name, exit 2 blocks the action. |
+
+## Rule syntax
+
+A rule is a tool name, optionally with a glob on the call's primary argument: the command for `bash`, the path for file tools, the URL for `fetch`.
+
+```
+"bash"                  every bash call
+"bash(go test *)"       bash commands starting with "go test "
+"write(docs/*)"         writes under docs/
+"mcp__docs__search"     one MCP tool
+"*"                     every tool
+```
+
+## Project instructions
+
+Not configuration, but read on every run: `KAKU.md` at the repo root is added to the system prompt, and `AGENTS.md` or `CLAUDE.md` are used as fallbacks, in that order.
