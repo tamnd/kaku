@@ -60,6 +60,42 @@ kaku rewind 8602b78  # restore a specific one
 
 The state before a rewind is snapshotted too, so a rewind can itself be undone.
 
+## Server and MCP
+
+`kaku serve` exposes one conversation over HTTP with SSE streaming:
+
+```sh
+kaku serve --mode auto &
+curl -N localhost:8377/v1/messages -d '{"prompt":"run the tests"}'
+curl localhost:8377/v1/history
+```
+
+`kaku mcp` turns the whole agent into an MCP server on stdio.
+Add it to another agent's MCP config and that agent gains a `kaku` tool whose calls share one conversation:
+
+```json
+{"mcpServers": {"kaku": {"command": "kaku", "args": ["mcp", "-C", "/path/to/project", "--mode", "auto"]}}}
+```
+
+Both surfaces are headless, so ask-mode permission prompts degrade to deny; pass `--mode auto` (or allow rules in settings) to let tools run.
+
+## Go SDK
+
+The engine is a plain Go package, and every surface above is a thin adapter over it:
+
+```go
+reg := tool.NewRegistry(builtin.All(dir)...)
+a := &engine.Agent{
+    Provider: anthropic.New(os.Getenv("ANTHROPIC_API_KEY"), ""),
+    Model:    "claude-sonnet-5",
+    Tools:    reg,
+    Perm:     &perm.Engine{Mode: perm.ModeAsk, ReadOnly: reg.ReadOnly},
+}
+out, err := a.Run(ctx, "what does this package do?")
+```
+
+See the runnable example in [pkg/engine](pkg/engine/example_test.go) for streaming events, permission rules, and continuing a conversation.
+
 ## Configuration
 
 Global config lives in `~/.kaku/config.json`, per-project settings in `.kaku/settings.json`.

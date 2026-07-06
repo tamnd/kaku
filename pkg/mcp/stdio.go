@@ -193,8 +193,7 @@ func (t *stdioTransport) close() error {
 			err = <-waited
 		}
 		// We asked the process to die, so a signal exit is not a failure.
-		var exit *exec.ExitError
-		if errors.As(err, &exit) {
+		if _, ok := errors.AsType[*exec.ExitError](err); ok {
 			err = nil
 		}
 		t.closeErr = err

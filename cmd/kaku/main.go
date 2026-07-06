@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -15,8 +16,10 @@ import (
 
 	"github.com/tamnd/kaku/pkg/checkpoint"
 	"github.com/tamnd/kaku/pkg/engine"
-	"github.com/tamnd/kaku/pkg/tool/builtin"
+	"github.com/tamnd/kaku/pkg/mcp"
+	"github.com/tamnd/kaku/pkg/serve"
 	"github.com/tamnd/kaku/pkg/session"
+	"github.com/tamnd/kaku/pkg/tool/builtin"
 	"github.com/tamnd/kaku/pkg/tui"
 )
 
@@ -81,8 +84,10 @@ func main() {
 		},
 	}
 
-	fl := root.Flags()
-	fl.BoolVarP(&print, "print", "p", false, "run headless: answer the prompt and exit")
+	root.Flags().BoolVarP(&print, "print", "p", false, "run headless: answer the prompt and exit")
+
+	// Shared by the root run and the serve/mcp subcommands.
+	fl := root.PersistentFlags()
 	fl.StringVarP(&o.dir, "dir", "C", "", "work in this directory instead of the current one")
 	fl.StringVar(&o.model, "model", "", "model override")
 	fl.StringVar(&o.provider, "provider", "", "provider: anthropic or openai")
@@ -95,7 +100,7 @@ func main() {
 	fl.BoolVar(&o.noMCP, "no-mcp", false, "skip connecting configured MCP servers")
 	fl.BoolVar(&o.sandbox, "sandbox", false, "confine bash writes to the working directory (Seatbelt on macOS, landlock on Linux)")
 
-	root.AddCommand(sessionsCmd(&o), rewindCmd(&o), sandboxExecCmd())
+	root.AddCommand(sessionsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), sandboxExecCmd())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -174,6 +179,65 @@ func sessionsCmd(o *options) *cobra.Command {
 				fmt.Println(m.String())
 			}
 			return nil
+		},
+	}
+}
+
+func serveCmd(o *options) *cobra.Command {
+	var addr string
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Serve the agent over HTTP with SSE streaming",
+		Long: "serve exposes one agent conversation over HTTP.\n" +
+			"POST /v1/messages streams engine events as SSE; GET /v1/history returns the conversation.\n" +
+			"Like headless mode, ask-mode permission prompts degrade to deny; pass --mode auto to allow tools.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rt, err := build(cmd.Context(), *o)
+			if err != nil {
+				return err
+			}
+			defer rt.close()
+			for name, err := range rt.mcpErrs {
+				fmt.Fprintf(os.Stderr, "mcp %s: %v\n", name, err)
+			}
+			fmt.Fprintf(os.Stderr, "kaku serving %s on http://%s\n", rt.dir, addr)
+			return serve.Run(cmd.Context(), addr, serve.Handler(rt.agent, rt.expandSkills))
+		},
+	}
+	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:8377", "listen address")
+	return cmd
+}
+
+func mcpCmd(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "mcp",
+		Short: "Expose the agent as an MCP server on stdio",
+		Long: "mcp turns kaku into an MCP server: add `kaku mcp` to another agent's\n" +
+			"MCP config and it gains a `kaku` tool that runs prompts through this\n" +
+			"project's agent. Calls share one conversation, so follow-ups keep context.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rt, err := build(cmd.Context(), *o)
+			if err != nil {
+				return err
+			}
+			defer rt.close()
+			tools := []mcp.ServerTool{{
+				Name:        "kaku",
+				Description: "Run the kaku coding agent on a task in " + rt.dir + ". Calls share one conversation, so follow-up calls keep context.",
+				Schema:      json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","description":"The task or question for the agent"}},"required":["prompt"]}`),
+				Run: func(ctx context.Context, args json.RawMessage) (string, error) {
+					var in struct {
+						Prompt string `json:"prompt"`
+					}
+					if err := json.Unmarshal(args, &in); err != nil || strings.TrimSpace(in.Prompt) == "" {
+						return "", fmt.Errorf("prompt is required")
+					}
+					return rt.agent.Run(ctx, rt.expandSkills(in.Prompt))
+				},
+			}}
+			return mcp.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), version, tools)
 		},
 	}
 }
