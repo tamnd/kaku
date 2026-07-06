@@ -41,6 +41,19 @@ Servers that speak the newer OpenAI Responses API work too:
 kaku --provider responses --base-url http://127.0.0.1:8000/v1 --model gpt-5
 ```
 
+## Checkpoints
+
+In a git repository, kaku snapshots the working tree before the first file-changing tool call of every turn.
+Snapshots live under a hidden ref (`refs/kaku/checkpoint`), so your branches, index, and HEAD are never touched.
+
+```sh
+kaku rewind --list   # show checkpoints
+kaku rewind          # restore the newest one
+kaku rewind 8602b78  # restore a specific one
+```
+
+The state before a rewind is snapshotted too, so a rewind can itself be undone.
+
 ## Configuration
 
 Global config lives in `~/.kaku/config.json`, per-project settings in `.kaku/settings.json`.

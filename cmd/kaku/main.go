@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/fang"
 	"github.com/spf13/cobra"
 
+	"github.com/tamnd/kaku/pkg/checkpoint"
 	"github.com/tamnd/kaku/pkg/engine"
 	"github.com/tamnd/kaku/pkg/session"
 	"github.com/tamnd/kaku/pkg/tui"
@@ -91,7 +92,7 @@ func main() {
 	fl.IntVar(&o.maxTurns, "max-turns", 0, "cap on model turns per run")
 	fl.BoolVar(&o.noMCP, "no-mcp", false, "skip connecting configured MCP servers")
 
-	root.AddCommand(sessionsCmd(&o))
+	root.AddCommand(sessionsCmd(&o), rewindCmd(&o))
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -172,6 +173,62 @@ func sessionsCmd(o *options) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func rewindCmd(o *options) *cobra.Command {
+	var list bool
+	cmd := &cobra.Command{
+		Use:   "rewind [checkpoint]",
+		Short: "Restore the working tree to a checkpoint",
+		Long: "Kaku snapshots the working tree before each turn that changes files.\n" +
+			"rewind restores the newest snapshot, or the one you name.\n" +
+			"The state before rewinding is snapshotted too, so a rewind can be undone.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := o.dir
+			if dir == "" {
+				var err error
+				if dir, err = os.Getwd(); err != nil {
+					return err
+				}
+			}
+			cm, err := checkpoint.New(dir)
+			if err != nil {
+				return err
+			}
+			if list {
+				infos, err := cm.List()
+				if err != nil {
+					return err
+				}
+				if len(infos) == 0 {
+					fmt.Println("no checkpoints yet")
+					return nil
+				}
+				for _, in := range infos {
+					fmt.Println(in)
+				}
+				return nil
+			}
+			sha := ""
+			if len(args) == 1 {
+				sha = args[0]
+			} else {
+				latest, err := cm.Latest()
+				if err != nil {
+					return err
+				}
+				sha = latest.SHA
+			}
+			if err := cm.Restore(sha); err != nil {
+				return err
+			}
+			fmt.Printf("restored %s\n", sha[:min(10, len(sha))])
+			return nil
+		},
+	}
+	cmd.Flags().BoolVarP(&list, "list", "l", false, "list checkpoints instead of restoring")
+	return cmd
 }
 
 func oneLine(s string, n int) string {

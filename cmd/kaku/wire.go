@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/tamnd/kaku/pkg/agentdef"
+	"github.com/tamnd/kaku/pkg/checkpoint"
 	"github.com/tamnd/kaku/pkg/compact"
 	"github.com/tamnd/kaku/pkg/config"
 	"github.com/tamnd/kaku/pkg/engine"
@@ -173,6 +174,15 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		Store:     rt.sess,
 		Compact:   compactor.Maybe,
 		Messages:  rt.sess.Messages(),
+	}
+
+	// Snapshot the tree before the first mutating tool call of each turn,
+	// when the directory is a git repository.
+	if cm, err := checkpoint.New(dir); err == nil {
+		a.Snapshot = func(label string) error {
+			_, err := cm.Save(oneLine(label, 72))
+			return err
+		}
 	}
 
 	reg.Add(agentdef.Tool(agentdef.Discover(dir), agentdef.Parent{

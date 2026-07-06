@@ -72,6 +72,11 @@ type Agent struct {
 	// slice and whether it changed anything.
 	Compact func(ctx context.Context, msgs []provider.Message) ([]provider.Message, bool, error)
 
+	// Snapshot, when set, runs once per Run before the first tool call
+	// that is not read-only. A failed snapshot is reported and the run
+	// continues.
+	Snapshot func(label string) error
+
 	OnEvent func(Event)
 
 	Messages []provider.Message
@@ -121,6 +126,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	if maxTurns <= 0 {
 		maxTurns = 80
 	}
+	snapped := false
 	for turn := 0; turn < maxTurns; turn++ {
 		if a.Compact != nil {
 			msgs, changed, err := a.Compact(ctx, a.Messages)
@@ -179,6 +185,12 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 		for _, use := range uses {
 			if ctx.Err() != nil {
 				return "", ctx.Err()
+			}
+			if a.Snapshot != nil && !snapped && !a.Tools.ReadOnly(use.Name) {
+				snapped = true
+				if err := a.Snapshot(input); err != nil {
+					a.emit(Event{Type: "info", Text: "checkpoint failed: " + err.Error()})
+				}
 			}
 			out, isErr := a.runTool(ctx, use)
 			results = append(results, provider.Block{

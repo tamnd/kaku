@@ -180,6 +180,53 @@ func TestMaxTurns(t *testing.T) {
 	}
 }
 
+func TestSnapshotBeforeFirstMutatingTool(t *testing.T) {
+	fp := &fakeProvider{resps: []*provider.Response{
+		toolUseResp("t1", "look", `{}`),
+		toolUseResp("t2", "echo", `{}`),
+		toolUseResp("t3", "echo", `{}`),
+		textResp("done"),
+	}}
+	look := tool.Func{
+		ToolName:    "look",
+		Desc:        "read-only",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Safe:        true,
+		Fn: func(_ context.Context, _ json.RawMessage) (string, error) {
+			return "seen", nil
+		},
+	}
+	a := newAgent(fp, tool.NewRegistry(look, echoTool(false)), perm.ModeAuto)
+	var labels []string
+	a.Snapshot = func(label string) error {
+		labels = append(labels, label)
+		return nil
+	}
+	if _, err := a.Run(context.Background(), "go"); err != nil {
+		t.Fatal(err)
+	}
+	// Not for the read-only tool, once for the two mutating calls.
+	if len(labels) != 1 || labels[0] != "go" {
+		t.Fatalf("labels = %v", labels)
+	}
+}
+
+func TestSnapshotSkippedForReadOnlyRun(t *testing.T) {
+	fp := &fakeProvider{resps: []*provider.Response{
+		toolUseResp("t1", "echo", `{}`),
+		textResp("done"),
+	}}
+	a := newAgent(fp, tool.NewRegistry(echoTool(true)), perm.ModeAuto)
+	called := 0
+	a.Snapshot = func(string) error { called++; return nil }
+	if _, err := a.Run(context.Background(), "go"); err != nil {
+		t.Fatal(err)
+	}
+	if called != 0 {
+		t.Fatalf("snapshot ran %d times for a read-only run", called)
+	}
+}
+
 func TestEventsStream(t *testing.T) {
 	fp := &fakeProvider{resps: []*provider.Response{
 		toolUseResp("t1", "echo", `{}`),
