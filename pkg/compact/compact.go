@@ -39,10 +39,16 @@ func (c *Compactor) Maybe(ctx context.Context, msgs []provider.Message) ([]provi
 	if c.Budget <= 0 || EstimateTokens(msgs) <= c.Budget {
 		return msgs, false, nil
 	}
-	keep := c.Keep
-	if keep < 2 {
-		keep = 2
-	}
+	return c.compact(ctx, msgs, max(c.Keep, 2))
+}
+
+// Force compacts regardless of the budget, keeping only the last exchange
+// verbatim. This backs an explicit /compact.
+func (c *Compactor) Force(ctx context.Context, msgs []provider.Message) ([]provider.Message, bool, error) {
+	return c.compact(ctx, msgs, 2)
+}
+
+func (c *Compactor) compact(ctx context.Context, msgs []provider.Message, keep int) ([]provider.Message, bool, error) {
 	cut := -1
 	for i := len(msgs) - keep; i > 0; i-- {
 		if isSafeBoundary(msgs[i]) {

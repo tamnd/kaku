@@ -12,7 +12,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/tamnd/kaku/pkg/compact"
 	"github.com/tamnd/kaku/pkg/engine"
+	"github.com/tamnd/kaku/pkg/provider"
 	"github.com/tamnd/kaku/pkg/session"
 	"github.com/tamnd/kaku/pkg/skill"
 )
@@ -28,6 +30,10 @@ type Runtime struct {
 	Mode        string
 	Dir         string
 	MCPFailures map[string]error
+
+	// Compact summarizes history on demand for /compact. Nil disables
+	// the command.
+	Compact func(ctx context.Context, msgs []provider.Message) ([]provider.Message, bool, error)
 }
 
 // Options configures Run.
@@ -72,6 +78,13 @@ type askMsg struct {
 type doneMsg struct {
 	out string
 	err error
+}
+
+type compactMsg struct {
+	msgs    []provider.Message
+	changed bool
+	before  int
+	err     error
 }
 
 type model struct {
@@ -257,6 +270,27 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refresh()
 		return m, nil
 
+	case compactMsg:
+		m.state = stateIdle
+		m.cancel = nil
+		switch {
+		case msg.err != nil:
+			m.entries = append(m.entries, entry{kind: "error", text: "compaction failed: " + msg.err.Error()})
+		case !msg.changed:
+			m.entries = append(m.entries, entry{kind: "info", text: "nothing to compact"})
+		default:
+			m.rt.Agent.Messages = msg.msgs
+			if m.rt.Session != nil {
+				if err := m.rt.Session.ReplaceMessages(msg.msgs); err != nil {
+					m.entries = append(m.entries, entry{kind: "error", text: "saving compacted history: " + err.Error()})
+				}
+			}
+			m.entries = append(m.entries, entry{kind: "info",
+				text: fmt.Sprintf("compacted: ~%d to ~%d tokens", msg.before, compact.EstimateTokens(msg.msgs))})
+		}
+		m.refresh()
+		return m, nil
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spin, cmd = m.spin.Update(msg)
@@ -282,14 +316,26 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 	if !strings.HasPrefix(raw, "/") {
 		return nil, false
 	}
-	name, _, _ := strings.Cut(strings.TrimPrefix(raw, "/"), " ")
+	name, rest, _ := strings.Cut(strings.TrimPrefix(raw, "/"), " ")
+	rest = strings.TrimSpace(rest)
 	switch name {
 	case "quit", "exit", "q":
 		return tea.Quit, true
 	case "help":
-		m.entries = append(m.entries, entry{kind: "info", text: "commands: /help, /skills, /clear, /quit · " +
+		m.entries = append(m.entries, entry{kind: "info", text: "commands: /help, /skills, /model [name], /compact, /clear, /quit · " +
 			"enter sends, esc interrupts, y/a/n answer permission prompts"})
 		return nil, true
+	case "model":
+		if rest == "" {
+			m.entries = append(m.entries, entry{kind: "info", text: "model: " + m.rt.Agent.Model + " · /model <name> switches"})
+			return nil, true
+		}
+		m.rt.Agent.Model = rest
+		m.rt.Model = rest
+		m.entries = append(m.entries, entry{kind: "info", text: "model set to " + rest})
+		return nil, true
+	case "compact":
+		return m.startCompact(), true
 	case "clear":
 		m.rt.Agent.Messages = nil
 		m.entries = append(m.entries, entry{kind: "info", text: "conversation cleared (transcript file keeps the history)"})
@@ -308,6 +354,31 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 		return nil, true
 	}
 	return nil, false
+}
+
+// startCompact summarizes the history off the UI goroutine.
+func (m *model) startCompact() tea.Cmd {
+	if m.rt.Compact == nil {
+		m.entries = append(m.entries, entry{kind: "info", text: "compaction is not available"})
+		return nil
+	}
+	msgs := m.rt.Agent.Messages
+	if len(msgs) < 3 {
+		m.entries = append(m.entries, entry{kind: "info", text: "nothing worth compacting yet"})
+		return nil
+	}
+	m.entries = append(m.entries, entry{kind: "info", text: "compacting..."})
+	m.state = stateRunning
+
+	ctx, cancel := context.WithCancel(m.rootCtx)
+	m.cancel = cancel
+	compactFn := m.rt.Compact
+	events := m.events
+	go func() {
+		out, changed, err := compactFn(ctx, msgs)
+		events <- compactMsg{msgs: out, changed: changed, before: compact.EstimateTokens(msgs), err: err}
+	}()
+	return m.waitEvent()
 }
 
 func (m *model) applyEvent(e engine.Event) {

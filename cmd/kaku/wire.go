@@ -39,13 +39,14 @@ type options struct {
 }
 
 type runtime struct {
-	cfg      *config.Config
-	agent    *engine.Agent
-	sess     *session.Session
-	skills   []skill.Skill
-	mcpClose func()
-	mcpErrs  map[string]error
-	dir      string
+	cfg       *config.Config
+	agent     *engine.Agent
+	sess      *session.Session
+	skills    []skill.Skill
+	compactor *compact.Compactor
+	mcpClose  func()
+	mcpErrs   map[string]error
+	dir       string
 }
 
 func (r *runtime) close() {
@@ -161,6 +162,7 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		smallModel = cfg.Model
 	}
 	compactor := &compact.Compactor{Provider: prov, Model: smallModel, Budget: 150000, Keep: 20}
+	rt.compactor = compactor
 
 	a := &engine.Agent{
 		Provider:  prov,

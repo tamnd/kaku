@@ -30,7 +30,7 @@ func toolPair(id string) []provider.Message {
 
 func history() []provider.Message {
 	var msgs []provider.Message
-	for i := 0; i < 30; i++ {
+	for range 30 {
 		msgs = append(msgs, provider.Text(provider.RoleUser, strings.Repeat("q", 200)))
 		msgs = append(msgs, toolPair("t")...)
 		msgs = append(msgs, provider.Text(provider.RoleAssistant, strings.Repeat("a", 200)))
@@ -75,10 +75,32 @@ func TestMaybeCompacts(t *testing.T) {
 	}
 }
 
+func TestForceIgnoresBudget(t *testing.T) {
+	fp := &fakeProvider{}
+	// Budget high enough that Maybe would never fire, Keep large.
+	c := &Compactor{Provider: fp, Budget: 1 << 30, Keep: 20}
+	msgs := history()
+	out, changed, err := c.Force(context.Background(), msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("Force must compact even under budget")
+	}
+	if !strings.Contains(out[0].TextContent(), "THE SUMMARY") {
+		t.Fatalf("first message = %q", out[0].TextContent())
+	}
+	// Force keeps only the tail after the nearest safe boundary: here the
+	// summary plus one 4-message round.
+	if len(out) > 5 {
+		t.Fatalf("Force kept too much: %d messages", len(out))
+	}
+}
+
 func TestMaybeNoSafeBoundary(t *testing.T) {
 	// Only tool_result user messages: no safe cut point.
 	msgs := toolPair("a")
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		msgs = append(msgs, toolPair("b")...)
 	}
 	c := &Compactor{Provider: &fakeProvider{}, Budget: 10, Keep: 2}

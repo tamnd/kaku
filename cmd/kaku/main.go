@@ -74,6 +74,7 @@ func main() {
 					Mode:        rt.cfg.Permissions.Mode,
 					Dir:         rt.dir,
 					MCPFailures: rt.mcpErrs,
+					Compact:     rt.compactor.Force,
 				}, nil
 			}})
 		},
