@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/tamnd/kaku/pkg/perm"
 	"github.com/tamnd/kaku/pkg/provider"
@@ -224,6 +227,103 @@ func TestSnapshotSkippedForReadOnlyRun(t *testing.T) {
 	}
 	if called != 0 {
 		t.Fatalf("snapshot ran %d times for a read-only run", called)
+	}
+}
+
+func TestParallelToolBatch(t *testing.T) {
+	// Three read-only calls in one response: each blocks until all three
+	// have started. Sequential execution would time out.
+	const n = 3
+	resp := &provider.Response{
+		Message:    provider.Message{Role: provider.RoleAssistant},
+		StopReason: provider.StopToolUse,
+	}
+	for i := range n {
+		resp.Message.Content = append(resp.Message.Content, provider.Block{
+			Type: provider.BlockToolUse, ID: fmt.Sprintf("t%d", i), Name: "wait", Input: json.RawMessage(`{}`),
+		})
+	}
+	fp := &fakeProvider{resps: []*provider.Response{resp, textResp("done")}}
+
+	started := make(chan struct{}, n)
+	release := make(chan struct{})
+	var once sync.Once
+	waitTool := tool.Func{
+		ToolName:    "wait",
+		Desc:        "blocks until the whole batch started",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Safe:        true,
+		Fn: func(_ context.Context, _ json.RawMessage) (string, error) {
+			started <- struct{}{}
+			if len(started) == n {
+				once.Do(func() { close(release) })
+			}
+			select {
+			case <-release:
+				return "ok", nil
+			case <-time.After(5 * time.Second):
+				return "", errors.New("batch did not run concurrently")
+			}
+		},
+	}
+
+	a := newAgent(fp, tool.NewRegistry(waitTool), perm.ModeAuto)
+	if _, err := a.Run(context.Background(), "go"); err != nil {
+		t.Fatal(err)
+	}
+	// Results arrive in call order and none timed out.
+	res := a.Messages[2].Content
+	if len(res) != n {
+		t.Fatalf("results = %d", len(res))
+	}
+	for i, b := range res {
+		if b.ToolUseID != fmt.Sprintf("t%d", i) {
+			t.Fatalf("result %d out of order: %+v", i, b)
+		}
+		if b.IsError {
+			t.Fatalf("result %d errored: %s", i, b.Text)
+		}
+	}
+}
+
+func TestMutatingToolsStaySequential(t *testing.T) {
+	// Two mutating calls in one response must not overlap.
+	resp := &provider.Response{
+		Message: provider.Message{Role: provider.RoleAssistant, Content: []provider.Block{
+			{Type: provider.BlockToolUse, ID: "t1", Name: "mut", Input: json.RawMessage(`{}`)},
+			{Type: provider.BlockToolUse, ID: "t2", Name: "mut", Input: json.RawMessage(`{}`)},
+		}},
+		StopReason: provider.StopToolUse,
+	}
+	fp := &fakeProvider{resps: []*provider.Response{resp, textResp("done")}}
+
+	var mu sync.Mutex
+	running, maxRunning := 0, 0
+	mutTool := tool.Func{
+		ToolName:    "mut",
+		Desc:        "mutates",
+		InputSchema: json.RawMessage(`{"type":"object"}`),
+		Fn: func(_ context.Context, _ json.RawMessage) (string, error) {
+			mu.Lock()
+			running++
+			if running > maxRunning {
+				maxRunning = running
+			}
+			mu.Unlock()
+			time.Sleep(20 * time.Millisecond)
+			mu.Lock()
+			running--
+			mu.Unlock()
+			return "ok", nil
+		},
+	}
+
+	a := newAgent(fp, tool.NewRegistry(mutTool), perm.ModeAuto)
+	if _, err := a.Run(context.Background(), "go"); err != nil {
+		t.Fatal(err)
+	}
+	if maxRunning != 1 {
+		t.Fatalf("mutating tools overlapped: max concurrent = %d", maxRunning)
 	}
 }
 

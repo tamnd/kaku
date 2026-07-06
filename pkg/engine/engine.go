@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/tamnd/kaku/pkg/perm"
 	"github.com/tamnd/kaku/pkg/provider"
@@ -181,24 +182,9 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 			return resp.Message.TextContent(), nil
 		}
 
-		results := make([]provider.Block, 0, len(uses))
-		for _, use := range uses {
-			if ctx.Err() != nil {
-				return "", ctx.Err()
-			}
-			if a.Snapshot != nil && !snapped && !a.Tools.ReadOnly(use.Name) {
-				snapped = true
-				if err := a.Snapshot(input); err != nil {
-					a.emit(Event{Type: "info", Text: "checkpoint failed: " + err.Error()})
-				}
-			}
-			out, isErr := a.runTool(ctx, use)
-			results = append(results, provider.Block{
-				Type:      provider.BlockToolResult,
-				ToolUseID: use.ID,
-				Text:      out,
-				IsError:   isErr,
-			})
+		results, err := a.runTools(ctx, input, uses, &snapped)
+		if err != nil {
+			return "", err
 		}
 		if err := a.append(provider.Message{Role: provider.RoleUser, Content: results}); err != nil {
 			return "", err
@@ -207,28 +193,127 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 	return "", fmt.Errorf("gave up after %d turns", maxTurns)
 }
 
-func (a *Agent) runTool(ctx context.Context, use provider.Block) (out string, isErr bool) {
-	t, ok := a.Tools.Get(use.Name)
-	if !ok {
-		return fmt.Sprintf("unknown tool %q", use.Name), true
+// maxParallelTools bounds how many tool calls run at once.
+const maxParallelTools = 8
+
+// parallelSafe reports whether a call may run concurrently with its
+// neighbors: read-only tools cannot interfere, and agent calls exist to be
+// fanned out (their file writes still go through their own tool calls).
+func (a *Agent) parallelSafe(name string) bool {
+	return a.Tools.ReadOnly(name) || name == "agent"
+}
+
+// runTools executes one response's tool calls. Consecutive parallel-safe
+// calls run concurrently; everything else runs in order. Results come back
+// in call order regardless.
+func (a *Agent) runTools(ctx context.Context, input string, uses []provider.Block, snapped *bool) ([]provider.Block, error) {
+	results := make([]provider.Block, len(uses))
+	set := func(k int, out string, isErr bool) {
+		results[k] = provider.Block{
+			Type:      provider.BlockToolResult,
+			ToolUseID: uses[k].ID,
+			Text:      out,
+			IsError:   isErr,
+		}
 	}
 
+	for i := 0; i < len(uses); {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		j := i
+		for j < len(uses) && a.parallelSafe(uses[j].Name) {
+			j++
+		}
+		if j-i < 2 {
+			a.snapshotIfMutating(input, snapped, uses[i].Name)
+			out, isErr := a.runTool(ctx, uses[i])
+			set(i, out, isErr)
+			i++
+			continue
+		}
+
+		batch := uses[i:j]
+		names := make([]string, len(batch))
+		for k, use := range batch {
+			names[k] = use.Name
+		}
+		a.snapshotIfMutating(input, snapped, names...)
+
+		// Permission prompts stay sequential; only approved calls fan out.
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, maxParallelTools)
+		for k := i; k < j; k++ {
+			if msg, ok := a.checkPerm(uses[k]); !ok {
+				set(k, msg, true)
+				continue
+			}
+			wg.Add(1)
+			sem <- struct{}{}
+			go func(k int) {
+				defer wg.Done()
+				defer func() { <-sem }()
+				out, isErr := a.execTool(ctx, uses[k])
+				set(k, out, isErr)
+			}(k)
+		}
+		wg.Wait()
+		i = j
+	}
+	return results, nil
+}
+
+func (a *Agent) snapshotIfMutating(input string, snapped *bool, names ...string) {
+	if a.Snapshot == nil || *snapped {
+		return
+	}
+	for _, n := range names {
+		if !a.Tools.ReadOnly(n) {
+			*snapped = true
+			if err := a.Snapshot(input); err != nil {
+				a.emit(Event{Type: "info", Text: "checkpoint failed: " + err.Error()})
+			}
+			return
+		}
+	}
+}
+
+func (a *Agent) runTool(ctx context.Context, use provider.Block) (string, bool) {
+	if msg, ok := a.checkPerm(use); !ok {
+		return msg, true
+	}
+	return a.execTool(ctx, use)
+}
+
+// checkPerm resolves the permission decision for one call, prompting the
+// user when needed. It must not run concurrently with itself: an "always"
+// answer appends to the allow rules.
+func (a *Agent) checkPerm(use provider.Block) (string, bool) {
+	if _, ok := a.Tools.Get(use.Name); !ok {
+		return fmt.Sprintf("unknown tool %q", use.Name), false
+	}
 	arg := perm.PrimaryArg(use.Input)
 	switch a.Perm.Check(use.Name, use.Input) {
 	case perm.Deny:
-		return fmt.Sprintf("permission denied for %s(%s)", use.Name, arg), true
+		return fmt.Sprintf("permission denied for %s(%s)", use.Name, arg), false
 	case perm.Ask:
 		if a.Ask == nil {
-			return fmt.Sprintf("permission required for %s(%s) and no way to ask", use.Name, arg), true
+			return fmt.Sprintf("permission required for %s(%s) and no way to ask", use.Name, arg), false
 		}
 		ans := a.Ask(use.Name, arg)
 		if !ans.Allow {
-			return fmt.Sprintf("user denied %s(%s)", use.Name, arg), true
+			return fmt.Sprintf("user denied %s(%s)", use.Name, arg), false
 		}
 		if ans.Always {
 			a.Perm.Allow = append(a.Perm.Allow, perm.Rule{Tool: use.Name})
 		}
 	}
+	return "", true
+}
+
+// execTool runs an approved call: hooks, events, and the tool itself.
+func (a *Agent) execTool(ctx context.Context, use provider.Block) (out string, isErr bool) {
+	t, _ := a.Tools.Get(use.Name)
 
 	if res := a.hooks(ctx, "pre_tool", use.Name, map[string]any{
 		"tool": use.Name, "input": use.Input,
