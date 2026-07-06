@@ -1,0 +1,328 @@
+// kaku is a coding agent in one binary.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+
+	"github.com/charmbracelet/fang"
+	"github.com/spf13/cobra"
+
+	"github.com/tamnd/kaku/pkg/checkpoint"
+	"github.com/tamnd/kaku/pkg/engine"
+	"github.com/tamnd/kaku/pkg/mcp"
+	"github.com/tamnd/kaku/pkg/serve"
+	"github.com/tamnd/kaku/pkg/session"
+	"github.com/tamnd/kaku/pkg/tool/builtin"
+	"github.com/tamnd/kaku/pkg/tui"
+)
+
+var version = "dev"
+
+func main() {
+	var o options
+	var print bool
+
+	root := &cobra.Command{
+		Use:   "kaku [prompt]",
+		Short: "A coding agent that lives in your terminal",
+		Long: "Kaku (書く, \"to write\") is a coding agent in one binary.\n" +
+			"Run it bare for the interactive TUI, or with -p for a single headless run.",
+		Args:          cobra.ArbitraryArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			prompt := strings.TrimSpace(strings.Join(args, " "))
+			stdin := cmd.InOrStdin()
+			if f, ok := stdin.(*os.File); ok && !isTTY(f) {
+				data, err := io.ReadAll(stdin)
+				if err != nil {
+					return err
+				}
+				if piped := strings.TrimSpace(string(data)); piped != "" {
+					if prompt != "" {
+						prompt = prompt + "\n\n" + piped
+					} else {
+						prompt = piped
+					}
+					print = true
+				}
+			}
+			if print || prompt != "" && !isTTY(os.Stdout) {
+				if prompt == "" {
+					return fmt.Errorf("print mode needs a prompt: kaku -p \"do the thing\"")
+				}
+				return runPrint(cmd.Context(), o, prompt)
+			}
+			if prompt != "" {
+				return runPrint(cmd.Context(), o, prompt)
+			}
+			return tui.Run(cmd.Context(), tui.Options{Build: func(ctx context.Context) (tui.Runtime, error) {
+				rt, err := build(ctx, o)
+				if err != nil {
+					return tui.Runtime{}, err
+				}
+				return tui.Runtime{
+					Agent:       rt.agent,
+					Session:     rt.sess,
+					Skills:      rt.skills,
+					Expand:      rt.expandSkills,
+					Close:       rt.close,
+					Model:       rt.cfg.Model,
+					Mode:        rt.cfg.Permissions.Mode,
+					Dir:         rt.dir,
+					MCPFailures: rt.mcpErrs,
+					Compact:     rt.compactor.Force,
+				}, nil
+			}})
+		},
+	}
+
+	root.Flags().BoolVarP(&print, "print", "p", false, "run headless: answer the prompt and exit")
+
+	// Shared by the root run and the serve/mcp subcommands.
+	fl := root.PersistentFlags()
+	fl.StringVarP(&o.dir, "dir", "C", "", "work in this directory instead of the current one")
+	fl.StringVar(&o.model, "model", "", "model override")
+	fl.StringVar(&o.provider, "provider", "", "provider: anthropic or openai")
+	fl.StringVar(&o.baseURL, "base-url", "", "API base URL (local servers, proxies)")
+	fl.StringVar(&o.apiKeyEnv, "api-key-env", "", "environment variable holding the API key")
+	fl.StringVar(&o.mode, "mode", "", "permission mode: plan, ask, or auto")
+	fl.BoolVar(&o.resume, "resume", false, "continue the newest session in this project")
+	fl.StringVar(&o.sessionID, "session", "", "continue a specific session id")
+	fl.IntVar(&o.maxTurns, "max-turns", 0, "cap on model turns per run")
+	fl.BoolVar(&o.noMCP, "no-mcp", false, "skip connecting configured MCP servers")
+	fl.BoolVar(&o.sandbox, "sandbox", false, "confine bash writes to the working directory (Seatbelt on macOS, landlock on Linux)")
+
+	root.AddCommand(sessionsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), sandboxExecCmd())
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := fang.Execute(ctx, root, fang.WithVersion(version)); err != nil {
+		os.Exit(1)
+	}
+}
+
+// runPrint is headless mode: stream the answer to stdout, tool activity to
+// stderr, exit non-zero on failure.
+func runPrint(ctx context.Context, o options, prompt string) error {
+	// Headless runs cannot prompt, so ask mode degrades to deny unless the
+	// user opted into auto.
+	rt, err := build(ctx, o)
+	if err != nil {
+		return err
+	}
+	defer rt.close()
+	for name, err := range rt.mcpErrs {
+		fmt.Fprintf(os.Stderr, "mcp %s: %v\n", name, err)
+	}
+
+	streamedText := false
+	rt.agent.OnEvent = func(e engine.Event) {
+		switch e.Type {
+		case "text":
+			streamedText = true
+			fmt.Print(e.Text)
+		case "tool_start":
+			fmt.Fprintf(os.Stderr, "· %s(%s)\n", e.Tool, oneLine(string(e.ToolInput), 120))
+		case "tool_end":
+			if e.IsError {
+				fmt.Fprintf(os.Stderr, "  ! %s\n", oneLine(e.ToolOutput, 200))
+			}
+		case "info":
+			fmt.Fprintf(os.Stderr, "%s\n", e.Text)
+		}
+	}
+
+	input := rt.expandSkills(prompt)
+	if len(rt.sess.Messages()) == 0 {
+		rt.sess.SetTitle(prompt)
+	}
+	out, err := rt.agent.Run(ctx, input)
+	if err != nil {
+		return err
+	}
+	if !streamedText && out != "" {
+		fmt.Print(out)
+	}
+	fmt.Println()
+	return nil
+}
+
+func sessionsCmd(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "sessions",
+		Short: "List this project's sessions",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := o.dir
+			if dir == "" {
+				var err error
+				if dir, err = os.Getwd(); err != nil {
+					return err
+				}
+			}
+			metas, err := session.NewStore(dir).List()
+			if err != nil {
+				return err
+			}
+			if len(metas) == 0 {
+				fmt.Println("no sessions yet")
+				return nil
+			}
+			for _, m := range metas {
+				fmt.Println(m.String())
+			}
+			return nil
+		},
+	}
+}
+
+func serveCmd(o *options) *cobra.Command {
+	var addr string
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Serve the agent over HTTP with SSE streaming",
+		Long: "serve exposes one agent conversation over HTTP.\n" +
+			"POST /v1/messages streams engine events as SSE; GET /v1/history returns the conversation.\n" +
+			"Like headless mode, ask-mode permission prompts degrade to deny; pass --mode auto to allow tools.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rt, err := build(cmd.Context(), *o)
+			if err != nil {
+				return err
+			}
+			defer rt.close()
+			for name, err := range rt.mcpErrs {
+				fmt.Fprintf(os.Stderr, "mcp %s: %v\n", name, err)
+			}
+			fmt.Fprintf(os.Stderr, "kaku serving %s on http://%s\n", rt.dir, addr)
+			return serve.Run(cmd.Context(), addr, serve.Handler(rt.agent, rt.expandSkills))
+		},
+	}
+	cmd.Flags().StringVar(&addr, "addr", "127.0.0.1:8377", "listen address")
+	return cmd
+}
+
+func mcpCmd(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "mcp",
+		Short: "Expose the agent as an MCP server on stdio",
+		Long: "mcp turns kaku into an MCP server: add `kaku mcp` to another agent's\n" +
+			"MCP config and it gains a `kaku` tool that runs prompts through this\n" +
+			"project's agent. Calls share one conversation, so follow-ups keep context.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rt, err := build(cmd.Context(), *o)
+			if err != nil {
+				return err
+			}
+			defer rt.close()
+			tools := []mcp.ServerTool{{
+				Name:        "kaku",
+				Description: "Run the kaku coding agent on a task in " + rt.dir + ". Calls share one conversation, so follow-up calls keep context.",
+				Schema:      json.RawMessage(`{"type":"object","properties":{"prompt":{"type":"string","description":"The task or question for the agent"}},"required":["prompt"]}`),
+				Run: func(ctx context.Context, args json.RawMessage) (string, error) {
+					var in struct {
+						Prompt string `json:"prompt"`
+					}
+					if err := json.Unmarshal(args, &in); err != nil || strings.TrimSpace(in.Prompt) == "" {
+						return "", fmt.Errorf("prompt is required")
+					}
+					return rt.agent.Run(ctx, rt.expandSkills(in.Prompt))
+				},
+			}}
+			return mcp.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), version, tools)
+		},
+	}
+}
+
+// sandboxExecCmd is the hidden Linux shim: --sandbox re-execs kaku through
+// it so landlock is applied inside the child before bash starts.
+func sandboxExecCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "sandbox-exec <workdir> <command>",
+		Hidden: true,
+		Args:   cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return builtin.SandboxExec(args[0], args[1])
+		},
+	}
+}
+
+func rewindCmd(o *options) *cobra.Command {
+	var list bool
+	cmd := &cobra.Command{
+		Use:   "rewind [checkpoint]",
+		Short: "Restore the working tree to a checkpoint",
+		Long: "Kaku snapshots the working tree before each turn that changes files.\n" +
+			"rewind restores the newest snapshot, or the one you name.\n" +
+			"The state before rewinding is snapshotted too, so a rewind can be undone.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := o.dir
+			if dir == "" {
+				var err error
+				if dir, err = os.Getwd(); err != nil {
+					return err
+				}
+			}
+			cm, err := checkpoint.New(dir)
+			if err != nil {
+				return err
+			}
+			if list {
+				infos, err := cm.List()
+				if err != nil {
+					return err
+				}
+				if len(infos) == 0 {
+					fmt.Println("no checkpoints yet")
+					return nil
+				}
+				for _, in := range infos {
+					fmt.Println(in)
+				}
+				return nil
+			}
+			sha := ""
+			if len(args) == 1 {
+				sha = args[0]
+			} else {
+				latest, err := cm.Latest()
+				if err != nil {
+					return err
+				}
+				sha = latest.SHA
+			}
+			if err := cm.Restore(sha); err != nil {
+				return err
+			}
+			fmt.Printf("restored %s\n", sha[:min(10, len(sha))])
+			return nil
+		},
+	}
+	cmd.Flags().BoolVarP(&list, "list", "l", false, "list checkpoints instead of restoring")
+	return cmd
+}
+
+func oneLine(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > n {
+		s = s[:n] + "..."
+	}
+	return s
+}
+
+func isTTY(f *os.File) bool {
+	st, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return st.Mode()&os.ModeCharDevice != 0
+}
