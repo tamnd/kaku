@@ -2,7 +2,7 @@
 
 Kaku (書く, "to write") is a coding agent that lives in your terminal.
 One static Go binary, no runtime to install, no cloud lock-in.
-Point it at the Anthropic API or at any OpenAI-compatible endpoint, including a llama.cpp or MLX server on your own hardware.
+Point it at the Anthropic API or at any OpenAI-compatible endpoint: chat completions or the Responses API, a llama.cpp or MLX server on your own hardware, or a hosted proxy.
 
 Sibling of [yomi](https://github.com/tamnd/yomi): yomi reads the web, kaku writes code.
 
@@ -33,6 +33,12 @@ To run against a local model:
 
 ```sh
 kaku --provider openai --base-url http://127.0.0.1:8080/v1 --model qwen3-30b
+```
+
+Servers that speak the newer OpenAI Responses API work too:
+
+```sh
+kaku --provider responses --base-url http://127.0.0.1:8000/v1 --model gpt-5
 ```
 
 ## Configuration

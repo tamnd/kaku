@@ -17,6 +17,7 @@ import (
 	"github.com/tamnd/kaku/pkg/provider"
 	"github.com/tamnd/kaku/pkg/provider/anthropic"
 	"github.com/tamnd/kaku/pkg/provider/openai"
+	"github.com/tamnd/kaku/pkg/provider/responses"
 	"github.com/tamnd/kaku/pkg/session"
 	"github.com/tamnd/kaku/pkg/skill"
 	"github.com/tamnd/kaku/pkg/tool"
@@ -81,7 +82,7 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		// not keep the other provider's default.
 		if o.apiKeyEnv == "" {
 			switch o.provider {
-			case "openai":
+			case "openai", "responses":
 				cfg.APIKeyEnv = "OPENAI_API_KEY"
 			case "anthropic":
 				cfg.APIKeyEnv = "ANTHROPIC_API_KEY"
@@ -113,8 +114,10 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		prov = anthropic.New(cfg.APIKey(), cfg.BaseURL)
 	case "openai":
 		prov = openai.New(cfg.APIKey(), cfg.BaseURL, "openai")
+	case "responses":
+		prov = responses.New(cfg.APIKey(), cfg.BaseURL, "responses")
 	default:
-		return nil, fmt.Errorf("unknown provider %q (want anthropic or openai)", cfg.Provider)
+		return nil, fmt.Errorf("unknown provider %q (want anthropic, openai, or responses)", cfg.Provider)
 	}
 
 	reg := tool.NewRegistry(builtin.All(dir)...)
