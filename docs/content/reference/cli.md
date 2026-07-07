@@ -125,6 +125,10 @@ uses `wl-paste` or `xclip`). Attachments show as `[img: name]` chips above the c
 and clear on send. Large PNG and JPEG images are downscaled to fit 1568px on the long edge
 before sending. A model without vision support will ignore the image blocks.
 
+`ctrl+g` hands the current draft to your external editor (`$VISUAL`, then `$EDITOR`,
+falling back to `vi`) so you can compose a long message in a real editing buffer. Save
+and quit the editor and the edited text loads back into the composer, ready to send.
+
 Dialogs (help, the model picker, errors, and permission prompts) open centered over
 the transcript. A read-and-dismiss dialog closes on `esc` or `enter`; the picker
 takes the arrow keys.
