@@ -41,7 +41,20 @@ Command-line flags override all three for that run.
 
   "instructions": ["CONTRIBUTING.md", "docs/conventions/*.md"],
 
-  "tools": {"fetch": false, "mcp__*": true}
+  "tools": {"fetch": false, "mcp__*": true},
+
+  "reasoning": "medium",
+
+  "providers": {
+    "zen": {
+      "api": "openai",
+      "base_url": "https://opencode.ai/zen/v1",
+      "api_key": "{env:OPENCODE_API_KEY}",
+      "models": {
+        "big-pickle": {"reasoning": "medium", "max_tokens": 32000}
+      }
+    }
+  }
 }
 ```
 
@@ -61,6 +74,40 @@ Command-line flags override all three for that run.
 | `hooks.<event>` | Commands to run on `pre_tool`, `post_tool`, `user_prompt`, or `stop`; `match` is a glob on the tool name, exit 2 blocks the action. |
 | `instructions` | Extra instruction-file globs, resolved relative to the project root, appended to the system prompt after `KAKU.md` and the memory files. |
 | `tools.<glob>` | Enable or disable tools by name glob. `false` removes the tool from the registry so the model never sees it; the `--tools`/`--exclude-tools` flags override this. |
+| `reasoning` | Global default reasoning level: `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`. A per-model setting or the `--thinking` flag overrides it. |
+| `providers.<name>` | A named custom provider: its wire format, endpoint, credential, and models. See below. |
+
+## Named providers
+
+The flat `provider`/`model`/`base_url`/`api_key_env` fields describe one default provider, and that keeps working untouched.
+To register more, add entries under `providers`. Each names a wire format (`api`), an endpoint, a credential, and the models it serves.
+
+```json
+"providers": {
+  "zen": {
+    "api": "openai",
+    "base_url": "https://opencode.ai/zen/v1",
+    "api_key": "{env:OPENCODE_API_KEY}",
+    "headers": {"X-Title": "kaku"},
+    "models": {
+      "big-pickle": {"reasoning": "medium", "max_tokens": 32000, "context": 200000}
+    }
+  }
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `providers.<name>.api` | Wire format: `anthropic`, `openai`, or `responses`. |
+| `providers.<name>.base_url` | The endpoint for this provider. |
+| `providers.<name>.api_key` | The credential. A bare string, `{env:VAR}` to read an environment variable, or `{file:~/.secrets/zen}` to read a file's trimmed contents. A missing variable or unreadable file is a loud error. |
+| `providers.<name>.headers` | Extra HTTP headers sent on every request. |
+| `providers.<name>.models.<id>` | One model. `reasoning` sets its default level, `max_tokens` its response cap, `context` and `name` are metadata. |
+
+Reference a model as `provider/model` (`zen/big-pickle`) or, when the name is unique across all providers, bare (`big-pickle`).
+A `:level` suffix sets reasoning for that run: `zen/big-pickle:high`.
+A bare name that is not found in any provider map is treated as a model on the default provider, so `--model claude-opus-4-8` still works with no `providers` block at all.
+Run `kaku models` to print every model kaku can resolve.
 
 ## Rule syntax
 
