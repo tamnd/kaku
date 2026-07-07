@@ -2,9 +2,11 @@ package agentdef
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/tamnd/kaku/pkg/perm"
+	"github.com/tamnd/kaku/pkg/tool"
 )
 
 func TestParsePermissionBlock(t *testing.T) {
@@ -38,6 +40,51 @@ You review code.`)
 		if r.Tool == "read" || r.Tool == "ls" {
 			t.Errorf("ask action should add no rule, got %+v", r)
 		}
+	}
+}
+
+func TestParseSubagentParityFields(t *testing.T) {
+	src := []byte(`---
+name: tuner
+temperature: 0.2
+top_p: 0.9
+hidden: true
+steps: 5
+---
+You are tuned.`)
+	d, err := parse("tuner", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Temperature != 0.2 {
+		t.Errorf("Temperature = %v, want 0.2", d.Temperature)
+	}
+	if d.TopP != 0.9 {
+		t.Errorf("TopP = %v, want 0.9", d.TopP)
+	}
+	if !d.Hidden {
+		t.Error("Hidden should be true")
+	}
+	if d.Steps != 5 {
+		t.Errorf("Steps = %d, want 5", d.Steps)
+	}
+}
+
+func TestHiddenAgentAbsentFromToolList(t *testing.T) {
+	defs := []Def{
+		{Name: "visible", Description: "shows up"},
+		{Name: "secret", Description: "hidden helper", Hidden: true},
+	}
+	tf, ok := Tool(defs, Parent{}).(tool.Func)
+	if !ok {
+		t.Fatal("agent tool should be a tool.Func")
+	}
+	schema := string(tf.InputSchema)
+	if !strings.Contains(schema, "visible") {
+		t.Errorf("visible agent should be listed: %s", schema)
+	}
+	if strings.Contains(schema, "secret") {
+		t.Errorf("hidden agent should not be listed: %s", schema)
 	}
 }
 

@@ -91,6 +91,8 @@ type apiRequest struct {
 	Tools           []apiTool     `json:"tools,omitempty"`
 	MaxOutputTokens int           `json:"max_output_tokens,omitempty"`
 	Reasoning       *apiReasoning `json:"reasoning,omitempty"`
+	Temperature     *float64      `json:"temperature,omitempty"`
+	TopP            *float64      `json:"top_p,omitempty"`
 	Stream          bool          `json:"stream"`
 	Store           bool          `json:"store"`
 }
@@ -105,6 +107,15 @@ func buildRequest(req provider.Request) apiRequest {
 	}
 	if req.Reasoning != "" && req.Reasoning != "off" {
 		out.Reasoning = &apiReasoning{Effort: req.Reasoning}
+	} else {
+		// Reasoning models reject the sampling knobs; only send them when
+		// reasoning is off.
+		if req.Temperature != 0 {
+			out.Temperature = &req.Temperature
+		}
+		if req.TopP != 0 {
+			out.TopP = &req.TopP
+		}
 	}
 
 	for _, t := range req.Tools {

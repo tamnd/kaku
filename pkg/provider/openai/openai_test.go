@@ -200,3 +200,18 @@ func TestBuildRequestReasoning(t *testing.T) {
 		t.Fatalf("reasoning_effort should be empty by default: %q", none.ReasoningEffort)
 	}
 }
+
+func TestBuildRequestSampling(t *testing.T) {
+	set := buildRequest(provider.Request{Model: "m", Temperature: 0.2, TopP: 0.9})
+	if set.Temperature == nil || *set.Temperature != 0.2 {
+		t.Fatalf("temperature = %v, want 0.2", set.Temperature)
+	}
+	if set.TopP == nil || *set.TopP != 0.9 {
+		t.Fatalf("top_p = %v, want 0.9", set.TopP)
+	}
+	// Unset (0) leaves the fields off the wire so the provider default holds.
+	none := buildRequest(provider.Request{Model: "m"})
+	if none.Temperature != nil || none.TopP != nil {
+		t.Fatalf("sampling knobs should be nil by default: %v %v", none.Temperature, none.TopP)
+	}
+}

@@ -55,14 +55,16 @@ const maxToolOutput = 30000
 
 // Agent is one conversation loop over a provider and a toolset.
 type Agent struct {
-	Provider  provider.Provider
-	Model     string
-	MaxTokens int
-	MaxTurns  int
-	Reasoning string // reasoning/thinking level passed to the provider
-	System    string
-	Tools     *tool.Registry
-	Perm      *perm.Engine
+	Provider    provider.Provider
+	Model       string
+	MaxTokens   int
+	MaxTurns    int
+	Reasoning   string  // reasoning/thinking level passed to the provider
+	Temperature float64 // sampling temperature; 0 leaves it to the provider
+	TopP        float64 // nucleus sampling; 0 leaves it to the provider
+	System      string
+	Tools       *tool.Registry
+	Perm        *perm.Engine
 
 	// Ask resolves perm.Ask decisions. Nil means such calls are denied,
 	// which is what headless runs want.
@@ -148,12 +150,14 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 		}
 
 		resp, err := a.Provider.Complete(ctx, provider.Request{
-			Model:     a.Model,
-			System:    a.System,
-			Messages:  a.Messages,
-			Tools:     a.Tools.Defs(),
-			MaxTokens: a.MaxTokens,
-			Reasoning: a.Reasoning,
+			Model:       a.Model,
+			System:      a.System,
+			Messages:    a.Messages,
+			Tools:       a.Tools.Defs(),
+			MaxTokens:   a.MaxTokens,
+			Reasoning:   a.Reasoning,
+			Temperature: a.Temperature,
+			TopP:        a.TopP,
 		}, func(ev provider.Event) {
 			switch ev.Type {
 			case "text":

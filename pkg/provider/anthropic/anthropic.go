@@ -82,13 +82,15 @@ type apiThinking struct {
 }
 
 type apiRequest struct {
-	Model     string       `json:"model"`
-	MaxTokens int          `json:"max_tokens"`
-	Stream    bool         `json:"stream"`
-	System    string       `json:"system,omitempty"`
-	Thinking  *apiThinking `json:"thinking,omitempty"`
-	Tools     []apiTool    `json:"tools,omitempty"`
-	Messages  []apiMessage `json:"messages"`
+	Model       string       `json:"model"`
+	MaxTokens   int          `json:"max_tokens"`
+	Stream      bool         `json:"stream"`
+	System      string       `json:"system,omitempty"`
+	Thinking    *apiThinking `json:"thinking,omitempty"`
+	Temperature *float64     `json:"temperature,omitempty"`
+	TopP        *float64     `json:"top_p,omitempty"`
+	Tools       []apiTool    `json:"tools,omitempty"`
+	Messages    []apiMessage `json:"messages"`
 }
 
 // thinkingBudget maps a reasoning level to an extended-thinking token budget.
@@ -127,6 +129,16 @@ func buildRequest(req provider.Request) apiRequest {
 			out.MaxTokens = budget + headroom
 		}
 		thinkOn = true
+	}
+	// Extended thinking forces temperature 1 and forbids top_p, so only pass
+	// the sampling knobs through when thinking is off.
+	if !thinkOn {
+		if req.Temperature != 0 {
+			out.Temperature = &req.Temperature
+		}
+		if req.TopP != 0 {
+			out.TopP = &req.TopP
+		}
 	}
 	for _, t := range req.Tools {
 		out.Tools = append(out.Tools, apiTool{

@@ -28,6 +28,10 @@ type Def struct {
 	Tools       []string    // optional allowlist of tool names
 	Allow       []perm.Rule // extra allow rules from the permission block
 	Deny        []perm.Rule // extra deny rules from the permission block
+	Temperature float64     // sampling temperature; 0 leaves it to the provider
+	TopP        float64     // nucleus sampling; 0 leaves it to the provider
+	Hidden      bool        // omit from the agent tool's type list
+	Steps       int         // per-subagent MaxTurns override; 0 inherits the parent
 	System      string      // markdown body
 }
 
@@ -35,8 +39,12 @@ type frontmatter struct {
 	Name        string            `yaml:"name"`
 	Description string            `yaml:"description"`
 	Model       string            `yaml:"model"`
-	Tools       string            `yaml:"tools"`      // comma separated
-	Permission  map[string]string `yaml:"permission"` // tool or category -> allow|ask|deny
+	Tools       string            `yaml:"tools"`       // comma separated
+	Permission  map[string]string `yaml:"permission"`  // tool or category -> allow|ask|deny
+	Temperature float64           `yaml:"temperature"` //
+	TopP        float64           `yaml:"top_p"`       //
+	Hidden      bool              `yaml:"hidden"`      //
+	Steps       int               `yaml:"steps"`       //
 }
 
 // General is the builtin fallback agent type.
@@ -92,6 +100,10 @@ func parse(defaultName string, data []byte) (Def, error) {
 			}
 			d.Description = fm.Description
 			d.Model = fm.Model
+			d.Temperature = fm.Temperature
+			d.TopP = fm.TopP
+			d.Hidden = fm.Hidden
+			d.Steps = fm.Steps
 			for _, t := range strings.Split(fm.Tools, ",") {
 				if t = strings.TrimSpace(t); t != "" {
 					d.Tools = append(d.Tools, t)
@@ -132,6 +144,9 @@ type Parent struct {
 func Tool(defs []Def, p Parent) tool.Tool {
 	var names []string
 	for _, d := range defs {
+		if d.Hidden {
+			continue // invoked only by name from a command, not model-selectable
+		}
 		desc := d.Description
 		if desc == "" {
 			desc = "custom agent"
@@ -196,13 +211,19 @@ func runSub(ctx context.Context, def Def, p Parent, prompt string) (string, erro
 	if model == "" {
 		model = p.Model
 	}
+	maxTurns := p.MaxTurns
+	if def.Steps > 0 {
+		maxTurns = def.Steps
+	}
 	sub := &engine.Agent{
-		Provider:  p.Provider,
-		Model:     model,
-		MaxTokens: p.MaxTokens,
-		MaxTurns:  p.MaxTurns,
-		System:    def.System,
-		Tools:     reg,
+		Provider:    p.Provider,
+		Model:       model,
+		MaxTokens:   p.MaxTokens,
+		MaxTurns:    maxTurns,
+		Temperature: def.Temperature,
+		TopP:        def.TopP,
+		System:      def.System,
+		Tools:       reg,
 		// Inherit the parent rules, but with nobody to ask, Ask denies. The
 		// agent's own permission block is layered in front so its rules win;
 		// deny beats allow, so an agent deny overrides an inherited allow.

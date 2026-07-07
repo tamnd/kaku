@@ -72,6 +72,21 @@ Fix the ${1:-first} problem you see.
 
 `@path` mentions also work in a plain prompt, no skill required: `kaku -p "explain @main.go"` inlines the file before the model sees it. Paths resolve relative to the project root (or absolute, or `~`-rooted); a mention that does not point at a readable file is left as written, so an email address survives. Each file is capped at 100KB and the whole prompt at 256KB.
 
+### Targeting a model or agent
+
+Skill frontmatter can pin where the command runs. `model` switches the active model for the command, and `agent` borrows a subagent's model override, so a review command lands on the reviewer's model in one keystroke:
+
+```markdown
+<!-- .kaku/skills/review.md -->
+---
+description: Review a diff on the reviewer model
+agent: reviewer
+---
+Review @$1 for correctness and tests.
+```
+
+A reference that does not resolve leaves the current model in place rather than failing the command.
+
 ## Subagents: fan work out
 
 A subagent is a Markdown file in `.kaku/agents/` defining a specialist the main loop can delegate to through its `agent` tool:
@@ -104,6 +119,18 @@ You review code and report findings. Do not modify files.
 ```
 
 Keys under `permission` name a tool or a category (`edit`, `read`, `bash`, `webfetch`) and map it to `allow`, `ask`, or `deny`. A subagent inherits the parent's rules with its own layered on top, so `edit: deny` denies both `edit` and `write` even when the parent runs in `--mode auto`. Since a subagent has nobody to prompt, `ask` acts as a deny.
+
+The full frontmatter field set:
+
+| Field | Effect |
+|---|---|
+| `description` | What the agent is for. The main model reads it to decide when to delegate. |
+| `model` | Model override for this agent's runs. Defaults to the parent's model. |
+| `tools` | Comma-separated allowlist. The agent only sees these tools; it never gets `agent` back. |
+| `permission` | Per-tool or per-category `allow`/`ask`/`deny` block, layered over the inherited rules. |
+| `temperature`, `top_p` | Sampling knobs passed to the provider. Left unset by default. |
+| `steps` | Turn cap for this agent's runs, overriding the parent's `max_turns`. |
+| `hidden` | Keep the agent out of the delegation list so the main model cannot pick it. Use it for helpers a command invokes by name with `agent:`. |
 
 ## Which one do I want?
 
