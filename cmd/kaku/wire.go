@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/tamnd/kaku/pkg/agentdef"
+	"github.com/tamnd/kaku/pkg/auth"
 	"github.com/tamnd/kaku/pkg/checkpoint"
 	"github.com/tamnd/kaku/pkg/compact"
 	"github.com/tamnd/kaku/pkg/config"
@@ -103,6 +104,11 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	cfg, err := config.Load(dir)
 	if err != nil {
 		return nil, err
+	}
+	// A stored credential fills in for a provider whose env var is unset, so
+	// `kaku auth login` works without exporting a key.
+	if store, err := auth.New(); err == nil {
+		cfg.AuthLookup = store.Get
 	}
 	// Flag overrides apply to the flat default provider, before resolution.
 	if o.provider != "" {

@@ -113,6 +113,19 @@ A `:level` suffix sets reasoning for that run: `zen/big-pickle:high`.
 A bare name that is not found in any provider map is treated as a model on the default provider, so `--model claude-opus-4-8` still works with no `providers` block at all.
 Run `kaku models` to print every model kaku can resolve.
 
+## Credential order
+
+For each provider kaku resolves a key in this order and uses the first that is non-empty:
+
+1. An explicit `api_key` on a named provider (`{env:VAR}` or `{file:path}`), or the flat `api_key_env` / `--api-key-env` for the default provider.
+2. A stored key in `~/.kaku/auth.json` under the provider name.
+3. The provider's default environment variable (today's behavior, unchanged).
+
+Store a key with `kaku auth login [provider]`, which reads it from the terminal without echoing and writes `~/.kaku/auth.json` with 0600 permissions.
+`kaku auth list` shows which providers have a stored key without ever printing one, and `kaku auth logout [provider]` removes it.
+The file holds a plain `{"anthropic": "sk-...", "zen": "..."}` map; keep it out of version control.
+Because the environment variable still wins when it is set, adding a stored key changes nothing for a session that already exports its key.
+
 ## Rule syntax
 
 A rule is a tool name, optionally with a glob on the call's primary argument: the command for `bash`, the path for file tools, the URL for `fetch`.
