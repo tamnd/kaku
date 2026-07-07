@@ -259,6 +259,34 @@ func newProvider(res config.Resolved) (provider.Provider, error) {
 	return prov, nil
 }
 
+// switchModel returns the function the TUI calls to change model at runtime. It
+// re-resolves the reference so a switch can cross providers, rebuilds the
+// provider, and returns an error for a reference that does not resolve, so a
+// typo surfaces at switch time instead of poisoning the next request.
+func (r *runtime) switchModel(o options) func(string) error {
+	return func(ref string) error {
+		res, err := r.cfg.Resolve(ref)
+		if err != nil {
+			return err
+		}
+		if res.Reasoning == "" {
+			res.Reasoning = r.cfg.Reasoning
+		}
+		if o.thinking != "" {
+			res.Reasoning = o.thinking
+		}
+		prov, err := newProvider(res)
+		if err != nil {
+			return err
+		}
+		r.agent.Provider = prov
+		r.agent.Model = res.Model
+		r.agent.MaxTokens = res.MaxTokens
+		r.agent.Reasoning = res.Reasoning
+		return nil
+	}
+}
+
 // expandSkills rewrites a leading /name invocation using the loaded skills,
 // then inlines any @file mentions. A plain prompt with no leading slash still
 // gets its @file mentions expanded.

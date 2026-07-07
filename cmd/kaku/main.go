@@ -83,6 +83,8 @@ func main() {
 					Mode:        rt.cfg.Permissions.Mode,
 					Dir:         rt.dir,
 					MCPFailures: rt.mcpErrs,
+					Models:      modelChoices(rt.cfg, rt.agent.Model),
+					SwitchModel: rt.switchModel(o),
 					Compact:     rt.compactor.Force,
 				}, nil
 			}})
@@ -414,4 +416,38 @@ func isTTY(f *os.File) bool {
 		return false
 	}
 	return st.Mode()&os.ModeCharDevice != 0
+}
+
+// modelChoices turns the resolvable models into picker rows. The flat default
+// is dropped when a named provider already serves the same model id, so the
+// list never shows one model twice. current marks the active row.
+func modelChoices(cfg *config.Config, current string) []tui.ModelChoice {
+	infos := cfg.Models()
+	named := map[string]bool{}
+	for _, mi := range infos {
+		if !mi.Default {
+			named[mi.Model] = true
+		}
+	}
+	var out []tui.ModelChoice
+	for _, mi := range infos {
+		var ref, label string
+		switch {
+		case mi.Default:
+			if named[mi.Model] {
+				continue
+			}
+			ref, label = mi.Model, mi.Model+"  (default)"
+		default:
+			ref = mi.Provider + "/" + mi.Model
+			label = ref
+		}
+		out = append(out, tui.ModelChoice{
+			Ref:       ref,
+			Label:     label,
+			Reasoning: mi.Reasoning,
+			Current:   mi.Model == current,
+		})
+	}
+	return out
 }
