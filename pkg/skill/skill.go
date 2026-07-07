@@ -25,6 +25,7 @@ type Skill struct {
 	Name        string
 	Description string
 	Model       string
+	Agent       string // run the command as this subagent
 	Source      string // file path
 	Body        string // markdown after frontmatter
 }
@@ -33,6 +34,7 @@ type frontmatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
 	Model       string `yaml:"model"`
+	Agent       string `yaml:"agent"`
 }
 
 // Parse reads one skill file's content. The name defaults to the filename
@@ -56,6 +58,7 @@ func Parse(path string, data []byte) (Skill, error) {
 		}
 		s.Description = fm.Description
 		s.Model = fm.Model
+		s.Agent = fm.Agent
 	}
 	s.Body = body
 	return s, nil

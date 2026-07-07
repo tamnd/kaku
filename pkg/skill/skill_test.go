@@ -36,6 +36,22 @@ Do the deploy for $ARGUMENTS.
 	}
 }
 
+func TestParseAgentFrontmatter(t *testing.T) {
+	data := []byte(`---
+name: review
+agent: reviewer
+---
+Review @$1.
+`)
+	s, err := Parse("/tmp/skills/review.md", data)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if s.Agent != "reviewer" {
+		t.Errorf("Agent = %q, want reviewer", s.Agent)
+	}
+}
+
 func TestParseWithoutFrontmatter(t *testing.T) {
 	s, err := Parse("/home/u/.kaku/skills/review.md", []byte("Just review the diff.\n"))
 	if err != nil {

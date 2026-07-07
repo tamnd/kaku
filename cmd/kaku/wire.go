@@ -56,6 +56,8 @@ type runtime struct {
 	agent     *engine.Agent
 	sess      *session.Session
 	skills    []skill.Skill
+	agents    []agentdef.Def
+	setModel  func(string) error // switches the active model, set in build
 	compactor *compact.Compactor
 	mcpClose  func()
 	mcpErrs   map[string]error
@@ -247,9 +249,11 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	gateTools(reg, builtinNames, cfg.Tools, o)
 
 	rt.skills, _ = skill.Discover(dir, "")
+	rt.agents = agents
 	rt.cost = res.Cost
 	rt.summary = resourceSummary(len(rt.skills), len(agents), len(cfg.MCPServers), strings.Count(inst, "# Instructions from "))
 	rt.agent = a
+	rt.setModel = rt.switchModel(o)
 	return rt, nil
 }
 
@@ -424,10 +428,31 @@ func (r *runtime) expandSkills(input string) string {
 	if strings.HasPrefix(input, "/") {
 		name, args, _ := strings.Cut(strings.TrimPrefix(input, "/"), " ")
 		if s, ok := skill.Find(r.skills, name); ok {
+			r.applySkillTarget(s)
 			// Skill.Expand already inlines @file mentions in the body.
 			return s.Expand(strings.TrimSpace(args), r.dir)
 		}
 	}
 	out, _ := mention.Expand(r.dir, input)
 	return out
+}
+
+// applySkillTarget honors a command's model or agent frontmatter by switching
+// the active model for the run. A skill can name a model directly, or an agent
+// whose model override the command borrows, so /review can run on the reviewer
+// agent's model in one keystroke. A reference that does not resolve is left
+// alone rather than aborting the command.
+func (r *runtime) applySkillTarget(s skill.Skill) {
+	ref := s.Model
+	if ref == "" && s.Agent != "" {
+		for _, d := range r.agents {
+			if d.Name == s.Agent {
+				ref = d.Model
+				break
+			}
+		}
+	}
+	if ref != "" && r.setModel != nil {
+		_ = r.setModel(ref)
+	}
 }

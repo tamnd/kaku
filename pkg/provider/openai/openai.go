@@ -90,6 +90,8 @@ type apiRequest struct {
 	Tools           []apiTool    `json:"tools,omitempty"`
 	MaxTokens       int          `json:"max_tokens,omitempty"`
 	ReasoningEffort string       `json:"reasoning_effort,omitempty"`
+	Temperature     *float64     `json:"temperature,omitempty"`
+	TopP            *float64     `json:"top_p,omitempty"`
 	Stream          bool         `json:"stream"`
 	StreamOptions   struct {
 		IncludeUsage bool `json:"include_usage"`
@@ -104,6 +106,12 @@ func buildRequest(req provider.Request) apiRequest {
 	}
 	if req.Reasoning != "" && req.Reasoning != "off" {
 		out.ReasoningEffort = req.Reasoning
+	}
+	if req.Temperature != 0 {
+		out.Temperature = &req.Temperature
+	}
+	if req.TopP != 0 {
+		out.TopP = &req.TopP
 	}
 	out.StreamOptions.IncludeUsage = true
 

@@ -86,12 +86,14 @@ type ToolDef struct {
 
 // Request is a single completion call.
 type Request struct {
-	Model     string
-	System    string
-	Messages  []Message
-	Tools     []ToolDef
-	MaxTokens int
-	Reasoning string // off|minimal|low|medium|high|xhigh; "" means provider default
+	Model       string
+	System      string
+	Messages    []Message
+	Tools       []ToolDef
+	MaxTokens   int
+	Reasoning   string  // off|minimal|low|medium|high|xhigh; "" means provider default
+	Temperature float64 // sampling temperature; 0 means leave it to the provider
+	TopP        float64 // nucleus sampling; 0 means leave it to the provider
 }
 
 // Usage reports token counts for one completion.
