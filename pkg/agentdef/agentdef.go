@@ -24,16 +24,19 @@ import (
 type Def struct {
 	Name        string
 	Description string
-	Model       string   // optional model override
-	Tools       []string // optional allowlist of tool names
-	System      string   // markdown body
+	Model       string      // optional model override
+	Tools       []string    // optional allowlist of tool names
+	Allow       []perm.Rule // extra allow rules from the permission block
+	Deny        []perm.Rule // extra deny rules from the permission block
+	System      string      // markdown body
 }
 
 type frontmatter struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	Model       string `yaml:"model"`
-	Tools       string `yaml:"tools"` // comma separated
+	Name        string            `yaml:"name"`
+	Description string            `yaml:"description"`
+	Model       string            `yaml:"model"`
+	Tools       string            `yaml:"tools"`      // comma separated
+	Permission  map[string]string `yaml:"permission"` // tool or category -> allow|ask|deny
 }
 
 // General is the builtin fallback agent type.
@@ -93,6 +96,16 @@ func parse(defaultName string, data []byte) (Def, error) {
 				if t = strings.TrimSpace(t); t != "" {
 					d.Tools = append(d.Tools, t)
 				}
+			}
+			for tool, action := range fm.Permission {
+				rules := perm.ParseRules([]string{tool})
+				switch strings.ToLower(strings.TrimSpace(action)) {
+				case "deny", "false":
+					d.Deny = append(d.Deny, rules...)
+				case "allow", "true":
+					d.Allow = append(d.Allow, rules...)
+				}
+				// "ask" adds no rule: a subagent has nobody to ask, so it denies.
 			}
 			body = rest[end+4:]
 		}
@@ -190,8 +203,15 @@ func runSub(ctx context.Context, def Def, p Parent, prompt string) (string, erro
 		MaxTurns:  p.MaxTurns,
 		System:    def.System,
 		Tools:     reg,
-		// Same rules as the parent, but with nobody to ask: Ask denies.
-		Perm:    &perm.Engine{Mode: p.Perm.Mode, Allow: p.Perm.Allow, Deny: p.Perm.Deny, ReadOnly: reg.ReadOnly},
+		// Inherit the parent rules, but with nobody to ask, Ask denies. The
+		// agent's own permission block is layered in front so its rules win;
+		// deny beats allow, so an agent deny overrides an inherited allow.
+		Perm: &perm.Engine{
+			Mode:     p.Perm.Mode,
+			Allow:    append(append([]perm.Rule{}, def.Allow...), p.Perm.Allow...),
+			Deny:     append(append([]perm.Rule{}, def.Deny...), p.Perm.Deny...),
+			ReadOnly: reg.ReadOnly,
+		},
 		OnEvent: p.OnEvent,
 	}
 	out, err := sub.Run(ctx, prompt)

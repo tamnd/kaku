@@ -118,6 +118,7 @@ func main() {
 	fl.StringVar(&o.thinking, "thinking", "", "reasoning level: off, minimal, low, medium, high, xhigh")
 	fl.BoolVar(&o.hideThinking, "hide-thinking", false, "do not print thinking, even when reasoning is on")
 	fl.StringVar(&o.mode, "mode", "", "permission mode: plan, ask, or auto")
+	fl.BoolVar(&o.skipPerm, "dangerously-skip-permissions", false, "allow every tool without prompting (alias for --mode auto)")
 	fl.BoolVarP(&o.resume, "continue", "c", false, "continue the newest session in this project")
 	fl.BoolVar(&o.resume, "resume", false, "continue the newest session in this project (alias for --continue)")
 	fl.BoolVar(&o.noSession, "no-session", false, "run without reading or writing a session file")

@@ -122,6 +122,19 @@ A rule is a tool name, optionally with a glob on the call's primary argument: th
 "*"                     every tool
 ```
 
+A rule can also name a category, which expands to its member tools at load. Any argument glob carries over to each member.
+
+| Category | Covers |
+|---|---|
+| `edit` | `edit`, `write` |
+| `read` | `read`, `ls`, `glob`, `grep` |
+| `bash` | `bash` |
+| `webfetch` | `fetch` |
+
+So `"deny": ["edit"]` blocks both `edit` and `write`, and `"edit(docs/*)"` gates writes under `docs/` for both.
+
+`--dangerously-skip-permissions` is a loud alias for `--mode auto`: it allows every tool without prompting.
+
 ## Project instructions
 
 Not configuration, but read on every run: `KAKU.md` at the repo root is added to the system prompt, and `AGENTS.md` or `CLAUDE.md` are used as fallbacks, in that order.

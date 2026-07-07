@@ -36,6 +36,17 @@ type Rule struct {
 	Arg  string
 }
 
+// categories are shorthand tool names that stand in for a set of concrete
+// tools. A rule keyed by a category expands to one rule per member at parse
+// time, so "edit" gates both edit and write, and "read" gates every read-only
+// file tool. Concrete tool names keep working untouched; categories are sugar.
+var categories = map[string][]string{
+	"edit":     {"edit", "write"},
+	"read":     {"read", "ls", "glob", "grep"},
+	"bash":     {"bash"},
+	"webfetch": {"fetch"},
+}
+
 // ParseRule reads the "tool" or "tool(arg-glob)" settings form.
 func ParseRule(s string) Rule {
 	s = strings.TrimSpace(s)
@@ -46,12 +57,28 @@ func ParseRule(s string) Rule {
 	return Rule{Tool: s[:open], Arg: s[open+1 : len(s)-1]}
 }
 
-// ParseRules reads a list of settings rule strings.
+// expand turns a category-keyed rule into one rule per member tool, keeping the
+// argument glob. A rule whose tool is not a category (including "bash", which
+// maps to itself) passes through as a single rule.
+func expand(r Rule) []Rule {
+	members, ok := categories[r.Tool]
+	if !ok || (len(members) == 1 && members[0] == r.Tool) {
+		return []Rule{r}
+	}
+	out := make([]Rule, 0, len(members))
+	for _, t := range members {
+		out = append(out, Rule{Tool: t, Arg: r.Arg})
+	}
+	return out
+}
+
+// ParseRules reads a list of settings rule strings, expanding any category
+// name into its member tools.
 func ParseRules(ss []string) []Rule {
 	out := make([]Rule, 0, len(ss))
 	for _, s := range ss {
 		if s = strings.TrimSpace(s); s != "" {
-			out = append(out, ParseRule(s))
+			out = append(out, expand(ParseRule(s))...)
 		}
 	}
 	return out

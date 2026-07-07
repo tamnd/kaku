@@ -48,6 +48,7 @@ type options struct {
 	excludeTools   string
 	noTools        bool
 	noBuiltinTools bool
+	skipPerm       bool
 }
 
 type runtime struct {
@@ -123,6 +124,9 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	}
 	if o.mode != "" {
 		cfg.Permissions.Mode = o.mode
+	}
+	if o.skipPerm {
+		cfg.Permissions.Mode = "auto"
 	}
 	if o.maxTurns > 0 {
 		cfg.MaxTurns = o.maxTurns

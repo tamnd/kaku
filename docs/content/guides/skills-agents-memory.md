@@ -89,6 +89,22 @@ The model decides when to use one, the same way it decides to grep.
 Each delegation runs in its own context with the same toolset, and subagents never get the `agent` tool back, so fan-out stays one level deep.
 Subagents keep the main conversation small: the specialist burns its own context on the noisy work and returns only the conclusion.
 
+The frontmatter can also pin a `model`, an allowlist of `tools`, and a `permission` block that tightens what the subagent may do:
+
+```markdown
+<!-- .kaku/agents/reviewer.md -->
+---
+description: Reviews a diff, never edits
+model: claude-haiku-4-5
+tools: read, grep, glob, ls
+permission:
+  edit: deny
+---
+You review code and report findings. Do not modify files.
+```
+
+Keys under `permission` name a tool or a category (`edit`, `read`, `bash`, `webfetch`) and map it to `allow`, `ask`, or `deny`. A subagent inherits the parent's rules with its own layered on top, so `edit: deny` denies both `edit` and `write` even when the parent runs in `--mode auto`. Since a subagent has nobody to prompt, `ask` acts as a deny.
+
 ## Which one do I want?
 
 - Always true about the project: `KAKU.md`.
