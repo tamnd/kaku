@@ -195,3 +195,56 @@ func TestNoRetryOn400(t *testing.T) {
 		t.Fatalf("err = %v, calls = %d", err, calls)
 	}
 }
+
+func TestBuildRequestReasoning(t *testing.T) {
+	req := provider.Request{Model: "m", MaxTokens: 1000, Reasoning: "high"}
+	out := buildRequest(req)
+	if out.Thinking == nil || out.Thinking.Type != "enabled" || out.Thinking.BudgetTokens != 16384 {
+		t.Fatalf("thinking not set for high: %+v", out.Thinking)
+	}
+	// max_tokens must exceed the thinking budget.
+	if out.MaxTokens <= out.Thinking.BudgetTokens {
+		t.Fatalf("max_tokens %d not above budget %d", out.MaxTokens, out.Thinking.BudgetTokens)
+	}
+
+	off := buildRequest(provider.Request{Model: "m", MaxTokens: 1000})
+	if off.Thinking != nil {
+		t.Fatalf("thinking should be nil when reasoning is empty: %+v", off.Thinking)
+	}
+	if off.MaxTokens != 1000 {
+		t.Fatalf("max_tokens should be unchanged when off: %d", off.MaxTokens)
+	}
+}
+
+func TestBuildRequestKeepsThinkingBlock(t *testing.T) {
+	req := provider.Request{
+		Model:     "m",
+		MaxTokens: 1000,
+		Reasoning: "medium",
+		Messages: []provider.Message{{
+			Role: provider.RoleAssistant,
+			Content: []provider.Block{
+				{Type: provider.BlockThinking, Text: "hmm", Signature: "sig-1"},
+				{Type: provider.BlockText, Text: "answer"},
+			},
+		}},
+	}
+	out := buildRequest(req)
+	var sawThinking bool
+	for _, b := range out.Messages[0].Content {
+		if b.Type == "thinking" && b.Signature == "sig-1" {
+			sawThinking = true
+		}
+	}
+	if !sawThinking {
+		t.Fatalf("thinking block with signature not sent back: %+v", out.Messages[0].Content)
+	}
+	// With thinking off, the block is dropped.
+	req.Reasoning = "off"
+	off := buildRequest(req)
+	for _, b := range off.Messages[0].Content {
+		if b.Type == "thinking" {
+			t.Fatalf("thinking block should be dropped when off")
+		}
+	}
+}

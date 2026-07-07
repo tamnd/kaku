@@ -30,6 +30,10 @@ type Block struct {
 	// result payload for tool_result blocks.
 	Text string `json:"text,omitempty"`
 
+	// Signature is the opaque token that authenticates a thinking block so
+	// it can be sent back in a later turn. Only set on thinking blocks.
+	Signature string `json:"signature,omitempty"`
+
 	// Tool use fields.
 	ID    string          `json:"id,omitempty"`
 	Name  string          `json:"name,omitempty"`
@@ -87,6 +91,7 @@ type Request struct {
 	Messages  []Message
 	Tools     []ToolDef
 	MaxTokens int
+	Reasoning string // off|minimal|low|medium|high|xhigh; "" means provider default
 }
 
 // Usage reports token counts for one completion.

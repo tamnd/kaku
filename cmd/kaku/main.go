@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/tamnd/kaku/pkg/checkpoint"
+	"github.com/tamnd/kaku/pkg/config"
 	"github.com/tamnd/kaku/pkg/engine"
 	"github.com/tamnd/kaku/pkg/mcp"
 	"github.com/tamnd/kaku/pkg/serve"
@@ -89,10 +90,11 @@ func main() {
 	// Shared by the root run and the serve/mcp subcommands.
 	fl := root.PersistentFlags()
 	fl.StringVarP(&o.dir, "dir", "C", "", "work in this directory instead of the current one")
-	fl.StringVar(&o.model, "model", "", "model override")
+	fl.StringVar(&o.model, "model", "", "model reference: provider/model, bare model, or model:level")
 	fl.StringVar(&o.provider, "provider", "", "provider: anthropic or openai")
 	fl.StringVar(&o.baseURL, "base-url", "", "API base URL (local servers, proxies)")
 	fl.StringVar(&o.apiKeyEnv, "api-key-env", "", "environment variable holding the API key")
+	fl.StringVar(&o.thinking, "thinking", "", "reasoning level: off, minimal, low, medium, high, xhigh")
 	fl.StringVar(&o.mode, "mode", "", "permission mode: plan, ask, or auto")
 	fl.BoolVar(&o.resume, "resume", false, "continue the newest session in this project")
 	fl.StringVar(&o.sessionID, "session", "", "continue a specific session id")
@@ -104,7 +106,7 @@ func main() {
 	fl.BoolVar(&o.noTools, "no-tools", false, "run with no tools at all")
 	fl.BoolVar(&o.noBuiltinTools, "no-builtin-tools", false, "drop the builtin tools but keep MCP and the agent tool")
 
-	root.AddCommand(sessionsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), sandboxExecCmd())
+	root.AddCommand(sessionsCmd(&o), modelsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), sandboxExecCmd())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -181,6 +183,42 @@ func sessionsCmd(o *options) *cobra.Command {
 			}
 			for _, m := range metas {
 				fmt.Println(m.String())
+			}
+			return nil
+		},
+	}
+}
+
+func modelsCmd(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "models",
+		Short: "List every model kaku can resolve",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := o.dir
+			if dir == "" {
+				var err error
+				if dir, err = os.Getwd(); err != nil {
+					return err
+				}
+			}
+			cfg, err := config.Load(dir)
+			if err != nil {
+				return err
+			}
+			for _, m := range cfg.Models() {
+				ref := m.Model
+				if m.Provider != "" {
+					ref = m.Provider + "/" + m.Model
+				}
+				reasoning := m.Reasoning
+				if reasoning == "" {
+					reasoning = "-"
+				}
+				line := fmt.Sprintf("%-40s  %s", ref, reasoning)
+				if m.Default {
+					line += "  (default)"
+				}
+				fmt.Println(line)
 			}
 			return nil
 		},

@@ -32,6 +32,7 @@ type options struct {
 	provider       string
 	baseURL        string
 	apiKeyEnv      string
+	thinking       string
 	mode           string
 	sessionID      string
 	resume         bool
@@ -84,6 +85,7 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Flag overrides apply to the flat default provider, before resolution.
 	if o.provider != "" {
 		cfg.Provider = o.provider
 		// Switching provider by flag without an explicit key env should
@@ -96,9 +98,6 @@ func build(ctx context.Context, o options) (*runtime, error) {
 				cfg.APIKeyEnv = "ANTHROPIC_API_KEY"
 			}
 		}
-	}
-	if o.model != "" {
-		cfg.Model = o.model
 	}
 	if o.baseURL != "" {
 		cfg.BaseURL = o.baseURL
@@ -113,19 +112,22 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		cfg.MaxTurns = o.maxTurns
 	}
 
-	var prov provider.Provider
-	switch cfg.Provider {
-	case "anthropic":
-		if cfg.APIKey() == "" {
-			return nil, fmt.Errorf("no API key: export %s or set api_key_env in ~/.kaku/config.json", cfg.APIKeyEnv)
-		}
-		prov = anthropic.New(cfg.APIKey(), cfg.BaseURL)
-	case "openai":
-		prov = openai.New(cfg.APIKey(), cfg.BaseURL, "openai")
-	case "responses":
-		prov = responses.New(cfg.APIKey(), cfg.BaseURL, "responses")
-	default:
-		return nil, fmt.Errorf("unknown provider %q (want anthropic, openai, or responses)", cfg.Provider)
+	// Resolve the model reference (may name a provider and a reasoning level)
+	// into concrete settings.
+	res, err := cfg.Resolve(o.model)
+	if err != nil {
+		return nil, err
+	}
+	if res.Reasoning == "" {
+		res.Reasoning = cfg.Reasoning
+	}
+	if o.thinking != "" {
+		res.Reasoning = o.thinking
+	}
+
+	prov, err := newProvider(res)
+	if err != nil {
+		return nil, err
 	}
 
 	base := builtin.All(dir)
@@ -173,16 +175,17 @@ func build(ctx context.Context, o options) (*runtime, error) {
 
 	smallModel := cfg.SmallModel
 	if smallModel == "" {
-		smallModel = cfg.Model
+		smallModel = res.Model
 	}
 	compactor := &compact.Compactor{Provider: prov, Model: smallModel, Budget: 150000, Keep: 20}
 	rt.compactor = compactor
 
 	a := &engine.Agent{
 		Provider:  prov,
-		Model:     cfg.Model,
-		MaxTokens: cfg.MaxTokens,
+		Model:     res.Model,
+		MaxTokens: res.MaxTokens,
 		MaxTurns:  cfg.MaxTurns,
+		Reasoning: res.Reasoning,
 		System:    system,
 		Tools:     reg,
 		Perm:      pe,
@@ -203,8 +206,8 @@ func build(ctx context.Context, o options) (*runtime, error) {
 
 	reg.Add(agentdef.Tool(agentdef.Discover(dir), agentdef.Parent{
 		Provider:  prov,
-		Model:     cfg.Model,
-		MaxTokens: cfg.MaxTokens,
+		Model:     res.Model,
+		MaxTokens: res.MaxTokens,
 		MaxTurns:  cfg.MaxTurns,
 		Tools:     reg,
 		Perm:      pe,
@@ -217,6 +220,34 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	rt.skills, _ = skill.Discover(dir, "")
 	rt.agent = a
 	return rt, nil
+}
+
+// headerSetter is implemented by the providers that accept extra HTTP headers.
+type headerSetter interface{ SetHeaders(map[string]string) }
+
+// newProvider constructs a provider from resolved settings, applying any
+// per-provider headers.
+func newProvider(res config.Resolved) (provider.Provider, error) {
+	var prov provider.Provider
+	switch res.API {
+	case "anthropic":
+		if res.APIKey == "" {
+			return nil, fmt.Errorf("no API key: export the key env or set api_key in the provider config")
+		}
+		prov = anthropic.New(res.APIKey, res.BaseURL)
+	case "openai":
+		prov = openai.New(res.APIKey, res.BaseURL, "openai")
+	case "responses":
+		prov = responses.New(res.APIKey, res.BaseURL, "responses")
+	default:
+		return nil, fmt.Errorf("unknown provider %q (want anthropic, openai, or responses)", res.API)
+	}
+	if len(res.Headers) > 0 {
+		if hs, ok := prov.(headerSetter); ok {
+			hs.SetHeaders(res.Headers)
+		}
+	}
+	return prov, nil
 }
 
 // expandSkills rewrites a leading /name invocation using the loaded skills,

@@ -185,3 +185,18 @@ func TestNoRetryOn400(t *testing.T) {
 		t.Fatalf("err = %v, calls = %d", err, calls)
 	}
 }
+
+func TestBuildRequestReasoning(t *testing.T) {
+	on := buildRequest(provider.Request{Model: "m", Reasoning: "high"})
+	if on.ReasoningEffort != "high" {
+		t.Fatalf("reasoning_effort = %q, want high", on.ReasoningEffort)
+	}
+	off := buildRequest(provider.Request{Model: "m", Reasoning: "off"})
+	if off.ReasoningEffort != "" {
+		t.Fatalf("reasoning_effort should be empty when off: %q", off.ReasoningEffort)
+	}
+	none := buildRequest(provider.Request{Model: "m"})
+	if none.ReasoningEffort != "" {
+		t.Fatalf("reasoning_effort should be empty by default: %q", none.ReasoningEffort)
+	}
+}

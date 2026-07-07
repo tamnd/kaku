@@ -27,8 +27,13 @@ type Client struct {
 	apiKey  string
 	baseURL string
 	name    string
+	headers map[string]string
 	http    *http.Client
 }
+
+// SetHeaders adds extra HTTP headers sent on every request, for providers that
+// need a custom header. Fixed headers still win.
+func (c *Client) SetHeaders(h map[string]string) { c.headers = h }
 
 // New returns a client. An empty baseURL means the public OpenAI endpoint,
 // an empty name means "responses".
@@ -75,14 +80,19 @@ type item struct {
 	Output    string        `json:"output,omitempty"`
 }
 
+type apiReasoning struct {
+	Effort string `json:"effort"`
+}
+
 type apiRequest struct {
-	Model           string    `json:"model"`
-	Instructions    string    `json:"instructions,omitempty"`
-	Input           []item    `json:"input"`
-	Tools           []apiTool `json:"tools,omitempty"`
-	MaxOutputTokens int       `json:"max_output_tokens,omitempty"`
-	Stream          bool      `json:"stream"`
-	Store           bool      `json:"store"`
+	Model           string        `json:"model"`
+	Instructions    string        `json:"instructions,omitempty"`
+	Input           []item        `json:"input"`
+	Tools           []apiTool     `json:"tools,omitempty"`
+	MaxOutputTokens int           `json:"max_output_tokens,omitempty"`
+	Reasoning       *apiReasoning `json:"reasoning,omitempty"`
+	Stream          bool          `json:"stream"`
+	Store           bool          `json:"store"`
 }
 
 func buildRequest(req provider.Request) apiRequest {
@@ -92,6 +102,9 @@ func buildRequest(req provider.Request) apiRequest {
 		MaxOutputTokens: req.MaxTokens,
 		Stream:          true,
 		Store:           false,
+	}
+	if req.Reasoning != "" && req.Reasoning != "off" {
+		out.Reasoning = &apiReasoning{Effort: req.Reasoning}
 	}
 
 	for _, t := range req.Tools {
@@ -170,6 +183,9 @@ func (c *Client) Complete(ctx context.Context, req provider.Request, on func(pro
 		hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/responses", bytes.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", c.name, err)
+		}
+		for k, v := range c.headers {
+			hreq.Header.Set(k, v)
 		}
 		hreq.Header.Set("Content-Type", "application/json")
 		if c.apiKey != "" {

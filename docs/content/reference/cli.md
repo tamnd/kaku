@@ -17,6 +17,7 @@ Run `kaku <command> --help` for the canonical, up-to-date list.
 | `kaku` | Interactive TUI in the current project. |
 | `kaku [prompt]` or `kaku -p "..."` | Headless run: stream the answer to stdout, tool activity to stderr, exit non-zero on failure. Piped stdin joins the prompt. |
 | `kaku sessions` | List this project's sessions. |
+| `kaku models` | List every model kaku can resolve, the default first, then each named provider's models. |
 | `kaku rewind [checkpoint]` | Restore the working tree to a checkpoint; `--list` shows them. |
 | `kaku serve` | HTTP API over one conversation with SSE streaming; `--addr` sets the listen address (default `127.0.0.1:8377`). |
 | `kaku mcp` | Speak MCP on stdio, exposing the agent as a `kaku` tool. |
@@ -28,10 +29,11 @@ These work on the root command and on `serve` and `mcp`:
 | Flag | Meaning |
 |---|---|
 | `-C, --dir` | Work in this directory instead of the current one. |
-| `--model` | Model override. |
+| `--model` | Model reference: `provider/model`, a bare `model`, or `model:level`. A named provider is looked up in the config's `providers` map; a bare name falls back to the default provider. |
 | `--provider` | `anthropic`, `openai`, or `responses`. |
 | `--base-url` | API base URL, for local servers and proxies. |
 | `--api-key-env` | Environment variable holding the API key. |
+| `--thinking` | Reasoning level for this run: `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Overrides the model default and the config `reasoning` key. |
 | `--mode` | Permission mode: `plan`, `ask`, or `auto`. |
 | `--resume` | Continue the newest session in this project. |
 | `--session <id>` | Continue a specific session. |

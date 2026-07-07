@@ -59,6 +59,7 @@ type Agent struct {
 	Model     string
 	MaxTokens int
 	MaxTurns  int
+	Reasoning string // reasoning/thinking level passed to the provider
 	System    string
 	Tools     *tool.Registry
 	Perm      *perm.Engine
@@ -152,6 +153,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 			Messages:  a.Messages,
 			Tools:     a.Tools.Defs(),
 			MaxTokens: a.MaxTokens,
+			Reasoning: a.Reasoning,
 		}, func(ev provider.Event) {
 			switch ev.Type {
 			case "text":
