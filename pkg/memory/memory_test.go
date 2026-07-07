@@ -45,3 +45,30 @@ func TestInstructionsEmpty(t *testing.T) {
 		t.Fatalf("expected empty, got %q", got)
 	}
 }
+
+func TestInstructionsExtraGlobs(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "CONTRIBUTING.md"), "contrib rules")
+	write(t, filepath.Join(root, "docs", "one.md"), "doc one")
+	write(t, filepath.Join(root, "docs", "two.md"), "doc two")
+	write(t, filepath.Join(root, "docs", "skip.txt"), "not markdown but matched by *.md? no")
+
+	got := Instructions(root, "CONTRIBUTING.md", "docs/*.md")
+	for _, want := range []string{"contrib rules", "doc one", "doc two"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in output", want)
+		}
+	}
+	if strings.Contains(got, "not markdown") {
+		t.Error("docs/*.md should not match a .txt file")
+	}
+}
+
+func TestInstructionsExtraGlobAbsolute(t *testing.T) {
+	root := t.TempDir()
+	abs := filepath.Join(root, "rules.md")
+	write(t, abs, "absolute rules")
+	if got := Instructions(t.TempDir(), abs); !strings.Contains(got, "absolute rules") {
+		t.Errorf("absolute glob not loaded: %q", got)
+	}
+}

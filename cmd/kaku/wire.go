@@ -157,7 +157,7 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	}
 
 	system := engine.DefaultSystem(dir)
-	if inst := memory.Instructions(dir); inst != "" {
+	if inst := memory.Instructions(dir, cfg.Instructions...); inst != "" {
 		system += "\n\n" + inst
 	}
 

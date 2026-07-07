@@ -44,9 +44,10 @@ type Config struct {
 	MaxTokens  int    `json:"max_tokens,omitempty"`
 	MaxTurns   int    `json:"max_turns,omitempty"`
 
-	Permissions Permissions          `json:"permissions"`
-	MCPServers  map[string]MCPServer `json:"mcpServers,omitempty"`
-	Hooks       map[string][]Hook    `json:"hooks,omitempty"`
+	Permissions  Permissions          `json:"permissions"`
+	MCPServers   map[string]MCPServer `json:"mcpServers,omitempty"`
+	Hooks        map[string][]Hook    `json:"hooks,omitempty"`
+	Instructions []string             `json:"instructions,omitempty"` // extra instruction-file globs
 }
 
 // Default returns the built-in configuration.
@@ -137,6 +138,7 @@ func merge(c, over *Config) {
 			c.Hooks[k] = append(c.Hooks[k], v...)
 		}
 	}
+	c.Instructions = append(c.Instructions, over.Instructions...)
 }
 
 // APIKey resolves the key from the configured environment variable.

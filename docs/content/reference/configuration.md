@@ -37,7 +37,9 @@ Command-line flags override all three for that run.
 
   "hooks": {
     "pre_tool": [{"match": "bash", "command": "./scripts/check.sh"}]
-  }
+  },
+
+  "instructions": ["CONTRIBUTING.md", "docs/conventions/*.md"]
 }
 ```
 
@@ -55,6 +57,7 @@ Command-line flags override all three for that run.
 | `mcpServers.<name>.command/args/env` | Spawn this MCP server over stdio. |
 | `mcpServers.<name>.url` | Dial this MCP server over streamable HTTP. |
 | `hooks.<event>` | Commands to run on `pre_tool`, `post_tool`, `user_prompt`, or `stop`; `match` is a glob on the tool name, exit 2 blocks the action. |
+| `instructions` | Extra instruction-file globs, resolved relative to the project root, appended to the system prompt after `KAKU.md` and the memory files. |
 
 ## Rule syntax
 
@@ -71,3 +74,5 @@ A rule is a tool name, optionally with a glob on the call's primary argument: th
 ## Project instructions
 
 Not configuration, but read on every run: `KAKU.md` at the repo root is added to the system prompt, and `AGENTS.md` or `CLAUDE.md` are used as fallbacks, in that order.
+
+To pull in more files, list globs under `instructions`. They resolve relative to the project root and their contents are appended after the walked instruction files and the `.kaku/memory/*.md` facts. Everything shares one 48KB budget; once it fills, the rest are dropped with a note.
