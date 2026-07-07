@@ -119,6 +119,17 @@ func (st *Store) New() (*Session, error) {
 	return s, nil
 }
 
+// Ephemeral returns a session that lives only in memory: it records messages
+// and usage for the run but never writes a file, so it leaves no trace on disk.
+// It is what --no-session builds.
+func (st *Store) Ephemeral() *Session {
+	now := time.Now().UTC()
+	var suffix [2]byte
+	_, _ = rand.Read(suffix[:])
+	id := now.Format("20060102-150405") + "-" + hex.EncodeToString(suffix[:])
+	return &Session{id: id, createdAt: now}
+}
+
 // Open replays an existing session file and reopens it for appending.
 func (st *Store) Open(id string) (*Session, error) {
 	path := filepath.Join(st.dir(), id+".jsonl")
@@ -195,6 +206,9 @@ func (s *Session) Messages() []provider.Message { return s.messages }
 func (s *Session) Usage() provider.Usage { return s.usage }
 
 func (s *Session) write(l line) error {
+	if s.f == nil {
+		return nil // ephemeral session: keep in memory only
+	}
 	data, err := json.Marshal(l)
 	if err != nil {
 		return err

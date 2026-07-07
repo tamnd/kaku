@@ -29,6 +29,7 @@ var version = "dev"
 func main() {
 	var o options
 	var print bool
+	var jsonOut bool
 
 	root := &cobra.Command{
 		Use:   "kaku [prompt]",
@@ -55,7 +56,10 @@ func main() {
 					print = true
 				}
 			}
-			if print || prompt != "" && !isTTY(os.Stdout) {
+			if jsonOut {
+				o.outputFormat = "json"
+			}
+			if print || jsonOut || prompt != "" && !isTTY(os.Stdout) {
 				if prompt == "" {
 					return fmt.Errorf("print mode needs a prompt: kaku -p \"do the thing\"")
 				}
@@ -75,7 +79,7 @@ func main() {
 					Skills:      rt.skills,
 					Expand:      rt.expandSkills,
 					Close:       rt.close,
-					Model:       rt.cfg.Model,
+					Model:       rt.agent.Model,
 					Mode:        rt.cfg.Permissions.Mode,
 					Dir:         rt.dir,
 					MCPFailures: rt.mcpErrs,
@@ -86,6 +90,7 @@ func main() {
 	}
 
 	root.Flags().BoolVarP(&print, "print", "p", false, "run headless: answer the prompt and exit")
+	root.Flags().BoolVar(&jsonOut, "json", false, "headless: emit one JSON event per line (sets --output-format json)")
 
 	// Shared by the root run and the serve/mcp subcommands.
 	fl := root.PersistentFlags()
@@ -95,9 +100,14 @@ func main() {
 	fl.StringVar(&o.baseURL, "base-url", "", "API base URL (local servers, proxies)")
 	fl.StringVar(&o.apiKeyEnv, "api-key-env", "", "environment variable holding the API key")
 	fl.StringVar(&o.thinking, "thinking", "", "reasoning level: off, minimal, low, medium, high, xhigh")
+	fl.BoolVar(&o.hideThinking, "hide-thinking", false, "do not print thinking, even when reasoning is on")
 	fl.StringVar(&o.mode, "mode", "", "permission mode: plan, ask, or auto")
-	fl.BoolVar(&o.resume, "resume", false, "continue the newest session in this project")
+	fl.BoolVarP(&o.resume, "continue", "c", false, "continue the newest session in this project")
+	fl.BoolVar(&o.resume, "resume", false, "continue the newest session in this project (alias for --continue)")
+	fl.BoolVar(&o.noSession, "no-session", false, "run without reading or writing a session file")
+	fl.StringVar(&o.title, "title", "", "set the session title up front")
 	fl.StringVar(&o.sessionID, "session", "", "continue a specific session id")
+	fl.StringVar(&o.outputFormat, "output-format", "text", "headless output format: text or json")
 	fl.IntVar(&o.maxTurns, "max-turns", 0, "cap on model turns per run")
 	fl.BoolVar(&o.noMCP, "no-mcp", false, "skip connecting configured MCP servers")
 	fl.BoolVar(&o.sandbox, "sandbox", false, "confine bash writes to the working directory (Seatbelt on macOS, landlock on Linux)")
@@ -129,12 +139,20 @@ func runPrint(ctx context.Context, o options, prompt string) error {
 		fmt.Fprintf(os.Stderr, "mcp %s: %v\n", name, err)
 	}
 
+	if o.outputFormat == "json" {
+		return runPrintJSON(ctx, o, rt, prompt)
+	}
+
 	streamedText := false
 	rt.agent.OnEvent = func(e engine.Event) {
 		switch e.Type {
 		case "text":
 			streamedText = true
 			fmt.Print(e.Text)
+		case "thinking":
+			if !o.hideThinking {
+				fmt.Fprint(os.Stderr, dim(e.Text))
+			}
 		case "tool_start":
 			fmt.Fprintf(os.Stderr, "· %s(%s)\n", e.Tool, oneLine(string(e.ToolInput), 120))
 		case "tool_end":
@@ -147,7 +165,7 @@ func runPrint(ctx context.Context, o options, prompt string) error {
 	}
 
 	input := rt.expandSkills(prompt)
-	if len(rt.sess.Messages()) == 0 {
+	if o.title == "" && len(rt.sess.Messages()) == 0 {
 		rt.sess.SetTitle(prompt)
 	}
 	out, err := rt.agent.Run(ctx, input)
@@ -160,6 +178,35 @@ func runPrint(ctx context.Context, o options, prompt string) error {
 	fmt.Println()
 	return nil
 }
+
+// runPrintJSON is headless mode with JSONL output: a session header first, one
+// event object per line, and a final result or error object. Nothing but the
+// stream goes to stdout.
+func runPrintJSON(ctx context.Context, o options, rt *runtime, prompt string) error {
+	em := jsonEmitter{w: os.Stdout}
+	em.session(rt.sess.ID(), rt.agent.Model, rt.dir)
+	rt.agent.OnEvent = func(e engine.Event) {
+		if e.Type == "thinking" && o.hideThinking {
+			return
+		}
+		em.event(e)
+	}
+
+	input := rt.expandSkills(prompt)
+	if o.title == "" && len(rt.sess.Messages()) == 0 {
+		rt.sess.SetTitle(prompt)
+	}
+	out, err := rt.agent.Run(ctx, input)
+	if err != nil {
+		em.fail(err.Error())
+		return err
+	}
+	em.result(out, rt.sess.Usage())
+	return nil
+}
+
+// dim wraps text in the ANSI dim escape for muted stderr output.
+func dim(s string) string { return "\x1b[2m" + s + "\x1b[0m" }
 
 func sessionsCmd(o *options) *cobra.Command {
 	return &cobra.Command{
