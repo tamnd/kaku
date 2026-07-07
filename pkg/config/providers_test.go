@@ -77,6 +77,31 @@ func TestResolveNamedQualified(t *testing.T) {
 	}
 }
 
+func TestResolveCarriesCost(t *testing.T) {
+	t.Setenv("OPENCODE_API_KEY", "sk-zen")
+	c := Default()
+	c.Providers = map[string]ProviderDef{
+		"zen": {
+			API:    "openai",
+			APIKey: "{env:OPENCODE_API_KEY}",
+			Models: map[string]ModelDef{"big-pickle": {Cost: &Cost{Input: 3, Output: 15}}},
+		},
+	}
+	r, err := c.Resolve("zen/big-pickle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Cost == nil || r.Cost.Input != 3 || r.Cost.Output != 15 {
+		t.Fatalf("resolved cost = %+v", r.Cost)
+	}
+	// A model with no cost leaves the field nil so the footer stays token-only.
+	c.Providers["zen"].Models["free"] = ModelDef{}
+	r2, _ := c.Resolve("zen/free")
+	if r2.Cost != nil {
+		t.Errorf("unpriced model should resolve with nil cost, got %+v", r2.Cost)
+	}
+}
+
 func TestResolveBareSearchesProviders(t *testing.T) {
 	t.Setenv("OPENCODE_API_KEY", "sk-zen")
 	c := Default()

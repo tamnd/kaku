@@ -59,6 +59,17 @@ type runtime struct {
 	mcpClose  func()
 	mcpErrs   map[string]error
 	dir       string
+	cost      *config.Cost // price of the active model, nil when unpriced
+	summary   string       // one-line resource summary for the TUI header
+}
+
+// modelCost returns the active model's per-million token prices and whether one
+// is configured, so the footer can estimate spend.
+func (r *runtime) modelCost() (in, out float64, ok bool) {
+	if r.cost == nil {
+		return 0, 0, false
+	}
+	return r.cost.Input, r.cost.Output, true
 }
 
 func (r *runtime) close() {
@@ -181,7 +192,8 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	}
 
 	system := engine.DefaultSystem(dir)
-	if inst := memory.Instructions(dir, cfg.Instructions...); inst != "" {
+	inst := memory.Instructions(dir, cfg.Instructions...)
+	if inst != "" {
 		system += "\n\n" + inst
 	}
 
@@ -216,7 +228,8 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		}
 	}
 
-	reg.Add(agentdef.Tool(agentdef.Discover(dir), agentdef.Parent{
+	agents := agentdef.Discover(dir)
+	reg.Add(agentdef.Tool(agents, agentdef.Parent{
 		Provider:  prov,
 		Model:     res.Model,
 		MaxTokens: res.MaxTokens,
@@ -230,8 +243,27 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	gateTools(reg, builtinNames, cfg.Tools, o)
 
 	rt.skills, _ = skill.Discover(dir, "")
+	rt.cost = res.Cost
+	rt.summary = resourceSummary(len(rt.skills), len(agents), len(cfg.MCPServers), strings.Count(inst, "# Instructions from "))
 	rt.agent = a
 	return rt, nil
+}
+
+// resourceSummary renders the header line that shows what a session loaded, so
+// a user can confirm at a glance that skills, agents, MCP servers, and memory
+// files took effect.
+func resourceSummary(skills, agents, mcp, memory int) string {
+	return fmt.Sprintf("%s · %s · %s · %s",
+		plural(skills, "skill"), plural(agents, "agent"),
+		plural(mcp, "MCP server"), plural(memory, "memory file"))
+}
+
+// plural renders a count with a naive singular or plural noun.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // headerSetter is implemented by the providers that accept extra HTTP headers.
@@ -286,6 +318,7 @@ func (r *runtime) switchModel(o options) func(string) error {
 		r.agent.Model = res.Model
 		r.agent.MaxTokens = res.MaxTokens
 		r.agent.Reasoning = res.Reasoning
+		r.cost = res.Cost
 		return nil
 	}
 }

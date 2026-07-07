@@ -91,7 +91,7 @@ To register more, add entries under `providers`. Each names a wire format (`api`
     "api_key": "{env:OPENCODE_API_KEY}",
     "headers": {"X-Title": "kaku"},
     "models": {
-      "big-pickle": {"reasoning": "medium", "max_tokens": 32000, "context": 200000}
+      "big-pickle": {"reasoning": "medium", "max_tokens": 32000, "context": 200000, "cost": {"input": 3, "output": 15}}
     }
   }
 }
@@ -103,7 +103,7 @@ To register more, add entries under `providers`. Each names a wire format (`api`
 | `providers.<name>.base_url` | The endpoint for this provider. |
 | `providers.<name>.api_key` | The credential. A bare string, `{env:VAR}` to read an environment variable, or `{file:~/.secrets/zen}` to read a file's trimmed contents. A missing variable or unreadable file is a loud error. |
 | `providers.<name>.headers` | Extra HTTP headers sent on every request. |
-| `providers.<name>.models.<id>` | One model. `reasoning` sets its default level, `max_tokens` its response cap, `context` and `name` are metadata. |
+| `providers.<name>.models.<id>` | One model. `reasoning` sets its default level, `max_tokens` its response cap, `context` and `name` are metadata, and `cost` (`{input, output}` in USD per million tokens) drives the TUI footer's spend estimate. Without a `cost` the footer shows tokens only. |
 
 Reference a model as `provider/model` (`zen/big-pickle`) or, when the name is unique across all providers, bare (`big-pickle`).
 A `:level` suffix sets reasoning for that run: `zen/big-pickle:high`.

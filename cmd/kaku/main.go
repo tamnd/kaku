@@ -84,6 +84,8 @@ func main() {
 					Mode:          rt.cfg.Permissions.Mode,
 					Dir:           rt.dir,
 					MCPFailures:   rt.mcpErrs,
+					Summary:       rt.summary,
+					Cost:          rt.modelCost,
 					Models:        modelChoices(rt.cfg, rt.agent.Model),
 					SwitchModel:   rt.switchModel(o),
 					Compact:       rt.compactor.Force,
