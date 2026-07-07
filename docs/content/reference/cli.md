@@ -38,6 +38,10 @@ These work on the root command and on `serve` and `mcp`:
 | `--max-turns` | Cap on model turns per run. |
 | `--no-mcp` | Skip connecting configured MCP servers. |
 | `--sandbox` | Confine bash writes to the working directory. |
+| `--tools <list>` | Allowlist of tools by name glob, comma separated. Only these are offered to the model (e.g. `read,grep,glob,ls` for a read-only run). |
+| `--exclude-tools <list>` | Denylist of tools by name glob, comma separated. |
+| `--no-tools` | Run with no tools at all. |
+| `--no-builtin-tools` | Drop the builtin tools but keep MCP and the agent tool. |
 
 ## TUI commands
 

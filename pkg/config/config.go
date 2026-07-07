@@ -48,6 +48,7 @@ type Config struct {
 	MCPServers   map[string]MCPServer `json:"mcpServers,omitempty"`
 	Hooks        map[string][]Hook    `json:"hooks,omitempty"`
 	Instructions []string             `json:"instructions,omitempty"` // extra instruction-file globs
+	Tools        map[string]bool      `json:"tools,omitempty"`        // enable/disable tools by name glob
 }
 
 // Default returns the built-in configuration.
@@ -139,6 +140,12 @@ func merge(c, over *Config) {
 		}
 	}
 	c.Instructions = append(c.Instructions, over.Instructions...)
+	if len(over.Tools) > 0 {
+		if c.Tools == nil {
+			c.Tools = map[string]bool{}
+		}
+		maps.Copy(c.Tools, over.Tools)
+	}
 }
 
 // APIKey resolves the key from the configured environment variable.
