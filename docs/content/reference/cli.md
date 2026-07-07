@@ -75,15 +75,19 @@ kaku -p --json "list the go files" | jq -c 'select(.type=="result") | .text'
 
 | Command | What it does |
 |---|---|
-| `/model [name]` | Show or switch the model. |
+| `/model [name]` | Switch the model. With no name it opens a picker over the models in your config; move with the arrow keys, `enter` selects, `esc` cancels. A name that does not resolve fails in a dialog instead of poisoning the next request. |
 | `/compact` | Summarize old turns now instead of waiting for the budget. |
 | `/skills` | List available skills. |
 | `/clear` | Start a fresh conversation. |
-| `/help` | List commands. |
+| `/help` | Open the command help dialog. |
 | `/quit` | Exit. |
 | `/<skill> [args]` | Run a skill from `.kaku/skills/` or `~/.kaku/skills/`. |
 
-At a permission prompt: `y` allows once, `a` allows that tool for the session, `n` or `esc` denies.
+Dialogs (help, the model picker, errors, and permission prompts) open centered over
+the transcript. A read-and-dismiss dialog closes on `esc` or `enter`; the picker
+takes the arrow keys.
+
+At a permission prompt: `y` allows once, `a` allows that tool for the session, `n` denies.
 `esc` interrupts a running turn.
 
 ## Builtin tools

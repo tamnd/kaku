@@ -31,6 +31,12 @@ type Runtime struct {
 	Dir         string
 	MCPFailures map[string]error
 
+	// Models is the list the /model picker offers. SwitchModel applies a
+	// choice, rebuilding the provider so a cross-provider switch works and a
+	// bad name fails loudly instead of poisoning the next request.
+	Models      []ModelChoice
+	SwitchModel func(ref string) error
+
 	// Compact summarizes history on demand for /compact. Nil disables
 	// the command.
 	Compact func(ctx context.Context, msgs []provider.Message) ([]provider.Message, bool, error)
@@ -103,6 +109,7 @@ type model struct {
 	events chan tea.Msg
 	cancel context.CancelFunc
 	ask    *askMsg
+	dialog *dialogState
 }
 
 var (
@@ -111,7 +118,6 @@ var (
 	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
 	footStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	askStyle    = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("3")).Padding(0, 1)
 	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
 )
 
@@ -201,6 +207,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// An open dialog takes every key until it closes.
+		if m.dialog != nil {
+			cmd := m.dialogKey(msg)
+			return m, cmd
+		}
 		switch m.state {
 		case stateAsking:
 			switch msg.String() {
@@ -265,7 +276,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateIdle
 		m.cancel = nil
 		if msg.err != nil {
-			m.entries = append(m.entries, entry{kind: "error", text: msg.err.Error()})
+			title, body := cleanError(msg.err)
+			m.showError(title, body)
+			// Keep a one-line trace in scrollback for when the dialog closes.
+			m.entries = append(m.entries, entry{kind: "error", text: oneLine(title+": "+body, 120)})
 		}
 		m.refresh()
 		return m, nil
@@ -275,7 +289,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cancel = nil
 		switch {
 		case msg.err != nil:
-			m.entries = append(m.entries, entry{kind: "error", text: "compaction failed: " + msg.err.Error()})
+			title, body := cleanError(msg.err)
+			m.showError("Compaction failed", title+"\n\n"+body)
 		case !msg.changed:
 			m.entries = append(m.entries, entry{kind: "info", text: "nothing to compact"})
 		default:
@@ -322,18 +337,14 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 	case "quit", "exit", "q":
 		return tea.Quit, true
 	case "help":
-		m.entries = append(m.entries, entry{kind: "info", text: "commands: /help, /skills, /model [name], /compact, /clear, /quit · " +
-			"enter sends, esc interrupts, y/a/n answer permission prompts"})
+		m.dialog = &dialogState{kind: dlgHelp, title: "kaku commands", body: helpBody}
 		return nil, true
 	case "model":
 		if rest == "" {
-			m.entries = append(m.entries, entry{kind: "info", text: "model: " + m.rt.Agent.Model + " · /model <name> switches"})
+			m.openModelPicker()
 			return nil, true
 		}
-		m.rt.Agent.Model = rest
-		m.rt.Model = rest
-		m.entries = append(m.entries, entry{kind: "info", text: "model set to " + rest})
-		return nil, true
+		return m.switchModel(rest), true
 	case "compact":
 		return m.startCompact(), true
 	case "clear":
@@ -409,13 +420,7 @@ func (m *model) applyEvent(e engine.Event) {
 
 func (m *model) vpHeight() int {
 	h := m.height - m.ta.Height() - 2 // footer + spacing
-	if m.state == stateAsking {
-		h -= 4
-	}
-	if h < 3 {
-		h = 3
-	}
-	return h
+	return max(h, 3)
 }
 
 func (m *model) refresh() {
@@ -451,12 +456,15 @@ func (m *model) View() string {
 		return "loading..."
 	}
 	var parts []string
-	parts = append(parts, m.vp.View())
-
-	if m.state == stateAsking && m.ask != nil {
-		q := fmt.Sprintf("run %s(%s)?\n[y] once   [a] always allow %s   [n] deny",
-			m.ask.tool, oneLine(m.ask.arg, 80), m.ask.tool)
-		parts = append(parts, askStyle.Render(q))
+	// The content area shows an open dialog, then a pending permission ask,
+	// otherwise the scrollable transcript.
+	switch {
+	case m.dialog != nil:
+		parts = append(parts, m.renderDialog())
+	case m.state == stateAsking && m.ask != nil:
+		parts = append(parts, m.renderAsk())
+	default:
+		parts = append(parts, m.vp.View())
 	}
 
 	parts = append(parts, m.ta.View())
