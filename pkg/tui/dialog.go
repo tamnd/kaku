@@ -191,11 +191,13 @@ const helpBody = `/help              show this help
 /new               start a fresh session
 /name <title>      rename the current session
 /theme [name]      switch the color theme, or list the choices
+/thinking [level]  show or set the reasoning level
 /export [file]     write the session to md, html, or json
 /clear             clear the conversation (the transcript file is kept)
 /quit              exit kaku
 
-enter send · esc interrupt · y/a/n answer permission prompts`
+enter send · esc interrupt · ctrl+n cycle model · shift+tab cycle thinking
+y/a/n answer permission prompts`
 
 // cleanError turns a provider error string into a short title and a readable
 // body. Provider errors arrive as "openai: 404 Not Found: [{...json...}]"; we

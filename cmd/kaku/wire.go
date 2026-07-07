@@ -339,6 +339,21 @@ func (r *runtime) exportSession(arg string) (string, error) {
 	return "exported to " + file, nil
 }
 
+// validReasoning holds the accepted reasoning levels.
+var validReasoning = map[string]bool{
+	"off": true, "minimal": true, "low": true, "medium": true, "high": true, "xhigh": true,
+}
+
+// setReasoning changes the live reasoning level. The provider reads it per
+// request from Agent.Reasoning, so no rebuild is needed.
+func (r *runtime) setReasoning(level string) error {
+	if !validReasoning[level] {
+		return fmt.Errorf("unknown reasoning level %q (want off, minimal, low, medium, high, xhigh)", level)
+	}
+	r.agent.Reasoning = level
+	return nil
+}
+
 // expandSkills rewrites a leading /name invocation using the loaded skills,
 // then inlines any @file mentions. A plain prompt with no leading slash still
 // gets its @file mentions expanded.
