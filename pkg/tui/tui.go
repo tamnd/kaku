@@ -146,6 +146,11 @@ type model struct {
 
 	// pendingCtx holds !cmd shell output to prepend to the next prompt.
 	pendingCtx []string
+
+	// files is the repo file list for the @ picker, scanned on first use;
+	// mention is the open picker, nil when the composer has no active @token.
+	files   []string
+	mention *mentionPicker
 }
 
 func newModel(ctx context.Context, rt Runtime) *model {
@@ -291,6 +296,31 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		default: // idle
+			// The @file picker, when open, takes the navigation keys.
+			if m.mention != nil {
+				switch msg.String() {
+				case "up", "ctrl+p":
+					if m.mention.cursor > 0 {
+						m.mention.cursor--
+					}
+					m.refresh()
+					return m, nil
+				case "down", "ctrl+n":
+					if m.mention.cursor < len(m.mention.matches)-1 {
+						m.mention.cursor++
+					}
+					m.refresh()
+					return m, nil
+				case "enter", "tab":
+					m.acceptMention()
+					m.refresh()
+					return m, nil
+				case "esc":
+					m.mention = nil
+					m.refresh()
+					return m, nil
+				}
+			}
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
@@ -324,6 +354,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(msg)
+		// Only the idle composer drives the @file picker.
+		if m.state == stateIdle {
+			m.updateMention()
+			m.refresh()
+		}
 		return m, cmd
 
 	case engineEventMsg:
@@ -741,6 +776,69 @@ func (m *model) deleteFromPicker() tea.Cmd {
 	return nil
 }
 
+// updateMention recomputes the @file overlay from the composer's tail token.
+// It opens the picker while an @token is being typed and closes it otherwise.
+func (m *model) updateMention() {
+	tok := activeMention(m.ta.Value())
+	if tok == "" {
+		m.mention = nil
+		return
+	}
+	if m.files == nil {
+		m.files = scanFiles(m.rt.Dir)
+	}
+	matches := rankMentions(m.files, tok[1:])
+	if len(matches) == 0 {
+		m.mention = nil
+		return
+	}
+	if len(matches) > mentionMax {
+		matches = matches[:mentionMax]
+	}
+	if m.mention == nil {
+		m.mention = &mentionPicker{}
+	}
+	m.mention.query = tok[1:]
+	m.mention.matches = matches
+	if m.mention.cursor >= len(matches) {
+		m.mention.cursor = len(matches) - 1
+	}
+	if m.mention.cursor < 0 {
+		m.mention.cursor = 0
+	}
+}
+
+// acceptMention replaces the trailing @token with the highlighted path.
+func (m *model) acceptMention() {
+	if m.mention == nil || len(m.mention.matches) == 0 {
+		return
+	}
+	sel := m.mention.matches[m.mention.cursor]
+	val := m.ta.Value()
+	i := strings.LastIndexAny(val, " \t\n")
+	m.ta.SetValue(val[:i+1] + "@" + sel + " ")
+	m.ta.CursorEnd()
+	m.mention = nil
+}
+
+// mentionView renders the open @file overlay, or "" when the picker is closed.
+func (m *model) mentionView() string {
+	if m.mention == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(m.st.dialogHint.Render("@file · ↑/↓ move · enter insert · esc cancel"))
+	for i, f := range m.mention.matches {
+		b.WriteString("\n")
+		if i == m.mention.cursor {
+			b.WriteString(m.st.pick.Render("› " + f))
+		} else {
+			b.WriteString("  " + m.st.dim.Render(f))
+		}
+	}
+	return b.String()
+}
+
 // startCompact summarizes the history off the UI goroutine.
 func (m *model) startCompact() tea.Cmd {
 	if m.rt.Compact == nil {
@@ -794,6 +892,9 @@ func (m *model) applyEvent(e engine.Event) {
 
 func (m *model) vpHeight() int {
 	h := m.height - m.ta.Height() - 2 // footer + spacing
+	if m.mention != nil {
+		h -= len(m.mention.matches) + 1 // overlay hint + rows
+	}
 	return max(h, 3)
 }
 
@@ -841,6 +942,9 @@ func (m *model) View() string {
 		parts = append(parts, m.vp.View())
 	}
 
+	if mv := m.mentionView(); mv != "" {
+		parts = append(parts, mv)
+	}
 	parts = append(parts, m.ta.View())
 
 	u := m.rt.Agent.Usage
