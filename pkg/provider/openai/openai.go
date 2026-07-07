@@ -84,6 +84,18 @@ type apiMessage struct {
 	ToolCalls  []apiToolCall `json:"tool_calls,omitempty"`
 }
 
+// contentPart is one entry of a multimodal user message. A text part carries
+// Text; an image_url part carries a data URL under ImageURL.
+type contentPart struct {
+	Type     string       `json:"type"`
+	Text     string       `json:"text,omitempty"`
+	ImageURL *apiImageURL `json:"image_url,omitempty"`
+}
+
+type apiImageURL struct {
+	URL string `json:"url"`
+}
+
 type apiRequest struct {
 	Model           string       `json:"model"`
 	Messages        []apiMessage `json:"messages"`
@@ -96,6 +108,15 @@ type apiRequest struct {
 	StreamOptions   struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
+}
+
+// dataURL builds the "data:<mime>;base64,<data>" URL the chat API expects for
+// an inline image.
+func dataURL(mediaType, data string) string {
+	if mediaType == "" {
+		mediaType = "image/png"
+	}
+	return "data:" + mediaType + ";base64," + data
 }
 
 func buildRequest(req provider.Request) apiRequest {
@@ -154,8 +175,9 @@ func buildRequest(req provider.Request) apiRequest {
 			out.Messages = append(out.Messages, am)
 		default:
 			// Tool results become role:tool messages, one per block, then
-			// any text blocks follow as a plain user message.
+			// any text and image blocks follow as a plain user message.
 			var text strings.Builder
+			var images []provider.Block
 			hasToolResult := false
 			for _, b := range m.Content {
 				switch b.Type {
@@ -168,9 +190,26 @@ func buildRequest(req provider.Request) apiRequest {
 					})
 				case provider.BlockText:
 					text.WriteString(b.Text)
+				case provider.BlockImage:
+					images = append(images, b)
 				}
 			}
-			if text.Len() > 0 || !hasToolResult {
+			switch {
+			case len(images) > 0:
+				// A multimodal message uses the content-parts array: the text
+				// first, then each image as a base64 data URL.
+				parts := make([]contentPart, 0, len(images)+1)
+				if text.Len() > 0 {
+					parts = append(parts, contentPart{Type: "text", Text: text.String()})
+				}
+				for _, img := range images {
+					parts = append(parts, contentPart{
+						Type:     "image_url",
+						ImageURL: &apiImageURL{URL: dataURL(img.MediaType, img.Data)},
+					})
+				}
+				out.Messages = append(out.Messages, apiMessage{Role: "user", Content: parts})
+			case text.Len() > 0 || !hasToolResult:
 				out.Messages = append(out.Messages, apiMessage{Role: "user", Content: text.String()})
 			}
 		}

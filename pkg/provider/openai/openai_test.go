@@ -201,6 +201,38 @@ func TestBuildRequestReasoning(t *testing.T) {
 	}
 }
 
+func TestBuildRequestImageBlock(t *testing.T) {
+	out := buildRequest(provider.Request{
+		Model: "m",
+		Messages: []provider.Message{{
+			Role: provider.RoleUser,
+			Content: []provider.Block{
+				{Type: provider.BlockText, Text: "look"},
+				provider.Image("image/png", "AAAA"),
+			},
+		}},
+	})
+	var um *apiMessage
+	for i := range out.Messages {
+		if out.Messages[i].Role == "user" {
+			um = &out.Messages[i]
+		}
+	}
+	if um == nil {
+		t.Fatal("no user message built")
+	}
+	parts, ok := um.Content.([]contentPart)
+	if !ok {
+		t.Fatalf("multimodal content should be a parts slice, got %T", um.Content)
+	}
+	if len(parts) != 2 || parts[0].Type != "text" || parts[1].Type != "image_url" {
+		t.Fatalf("parts = %+v", parts)
+	}
+	if parts[1].ImageURL == nil || parts[1].ImageURL.URL != "data:image/png;base64,AAAA" {
+		t.Fatalf("image url = %+v", parts[1].ImageURL)
+	}
+}
+
 func TestBuildRequestSampling(t *testing.T) {
 	set := buildRequest(provider.Request{Model: "m", Temperature: 0.2, TopP: 0.9})
 	if set.Temperature == nil || *set.Temperature != 0.2 {

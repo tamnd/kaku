@@ -406,3 +406,29 @@ func TestRunNudgeGivesUp(t *testing.T) {
 		t.Fatalf("requests = %d, want 3 (initial + 2 nudges)", len(fp.reqs))
 	}
 }
+
+func TestUserMessageText(t *testing.T) {
+	m := userMessage("hello", nil)
+	if m.Role != provider.RoleUser || len(m.Content) != 1 || m.Content[0].Type != provider.BlockText {
+		t.Fatalf("plain text message = %+v", m)
+	}
+	if m.Content[0].Text != "hello" {
+		t.Fatalf("text = %q", m.Content[0].Text)
+	}
+}
+
+func TestUserMessageWithImages(t *testing.T) {
+	imgs := []provider.Block{provider.Image("image/png", "AAAA")}
+	m := userMessage("caption", imgs)
+	if len(m.Content) != 2 {
+		t.Fatalf("want text + image, got %+v", m.Content)
+	}
+	if m.Content[0].Type != provider.BlockText || m.Content[1].Type != provider.BlockImage {
+		t.Fatalf("block order wrong: %+v", m.Content)
+	}
+	// An empty caption drops the text block so only the image rides along.
+	only := userMessage("", imgs)
+	if len(only.Content) != 1 || only.Content[0].Type != provider.BlockImage {
+		t.Fatalf("empty caption should leave only the image, got %+v", only.Content)
+	}
+}

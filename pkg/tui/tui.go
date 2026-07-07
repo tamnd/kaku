@@ -153,6 +153,11 @@ type model struct {
 	// pendingCtx holds !cmd shell output to prepend to the next prompt.
 	pendingCtx []string
 
+	// pendingImages holds image blocks attached to the next prompt, with a
+	// parallel label per image for the composer chip line.
+	pendingImages []provider.Block
+	pendingLabels []string
+
 	// files is the repo file list for the @ picker, scanned on first use;
 	// mention is the open picker, nil when the composer has no active @token.
 	files   []string
@@ -225,21 +230,30 @@ func (m *model) waitEvent() tea.Cmd {
 }
 
 func (m *model) submit(raw string) tea.Cmd {
-	input := raw
+	// Pull any @image mentions out first so they attach as image blocks rather
+	// than getting inlined as binary text by the @file expander.
+	cleaned := m.attachImageMentions(raw)
+	input := cleaned
 	if m.rt.Expand != nil {
-		input = m.rt.Expand(raw)
+		input = m.rt.Expand(cleaned)
 	}
 	if len(m.pendingCtx) > 0 {
 		input = strings.Join(m.pendingCtx, "\n\n") + "\n\n" + input
 		m.pendingCtx = nil
 	}
-	return m.runInput(raw, input)
+	images := m.pendingImages
+	display := raw
+	if len(images) > 0 {
+		display = strings.TrimSpace(raw + " " + imageChips(m.pendingLabels))
+	}
+	m.pendingImages, m.pendingLabels = nil, nil
+	return m.runInput(display, input, images)
 }
 
 // runInput shows display in the transcript and sends input to the agent. The
 // two differ when a command (like /init) or shell context stands in for what
 // the model actually receives.
-func (m *model) runInput(display, input string) tea.Cmd {
+func (m *model) runInput(display, input string, images []provider.Block) tea.Cmd {
 	m.entries = append(m.entries, entry{kind: "user", text: display})
 	m.state = stateRunning
 	if len(m.rt.Agent.Messages) == 0 && m.rt.Session != nil {
@@ -251,7 +265,7 @@ func (m *model) runInput(display, input string) tea.Cmd {
 	agent := m.rt.Agent
 	events := m.events
 	go func() {
-		out, err := agent.Run(ctx, input)
+		out, err := agent.RunWith(ctx, input, images)
 		events <- doneMsg{out: out, err: err}
 	}()
 	return m.waitEvent()
@@ -339,6 +353,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			case "shift+tab":
 				m.cycleReasoning()
+				m.refresh()
+				return m, nil
+			case "ctrl+v":
+				if note := m.pasteImage(); note != "" {
+					m.entries = append(m.entries, entry{kind: "info", text: note})
+				}
 				m.refresh()
 				return m, nil
 			case "enter":
@@ -464,7 +484,7 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 		m.newSession()
 		return nil, true
 	case "init":
-		return m.runInput("/init", engine.InitPrompt), true
+		return m.runInput("/init", engine.InitPrompt, nil), true
 	case "sessions":
 		m.openSessionPicker()
 		return nil, true
@@ -953,6 +973,9 @@ func (m *model) View() string {
 
 	if mv := m.mentionView(); mv != "" {
 		parts = append(parts, mv)
+	}
+	if len(m.pendingLabels) > 0 {
+		parts = append(parts, m.st.foot.Render(imageChips(m.pendingLabels)))
 	}
 	parts = append(parts, m.ta.View())
 

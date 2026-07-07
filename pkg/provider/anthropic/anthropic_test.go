@@ -216,6 +216,33 @@ func TestBuildRequestReasoning(t *testing.T) {
 	}
 }
 
+func TestBuildRequestImageBlock(t *testing.T) {
+	req := provider.Request{
+		Model:     "m",
+		MaxTokens: 1000,
+		Messages: []provider.Message{{
+			Role: provider.RoleUser,
+			Content: []provider.Block{
+				{Type: provider.BlockText, Text: "what is this"},
+				provider.Image("image/png", "AAAA"),
+			},
+		}},
+	}
+	out := buildRequest(req)
+	var img *apiBlock
+	for i, b := range out.Messages[0].Content {
+		if b.Type == "image" {
+			img = &out.Messages[0].Content[i]
+		}
+	}
+	if img == nil || img.Source == nil {
+		t.Fatalf("image block missing a source: %+v", out.Messages[0].Content)
+	}
+	if img.Source.Type != "base64" || img.Source.MediaType != "image/png" || img.Source.Data != "AAAA" {
+		t.Fatalf("image source = %+v", img.Source)
+	}
+}
+
 func TestBuildRequestKeepsThinkingBlock(t *testing.T) {
 	req := provider.Request{
 		Model:     "m",

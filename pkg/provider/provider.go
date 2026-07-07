@@ -20,6 +20,7 @@ const (
 	BlockThinking   = "thinking"
 	BlockToolUse    = "tool_use"
 	BlockToolResult = "tool_result"
+	BlockImage      = "image"
 )
 
 // Block is one content block inside a message.
@@ -42,6 +43,11 @@ type Block struct {
 	// Tool result fields.
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
+
+	// Image fields. MediaType is a MIME type like "image/png"; Data is the raw
+	// image bytes encoded as standard base64, with no "data:" prefix.
+	MediaType string `json:"media_type,omitempty"`
+	Data      string `json:"data,omitempty"`
 }
 
 // Message is one turn in the conversation.
@@ -53,6 +59,11 @@ type Message struct {
 // Text builds a plain text message.
 func Text(role, text string) Message {
 	return Message{Role: role, Content: []Block{{Type: BlockText, Text: text}}}
+}
+
+// Image builds an image content block from a MIME type and base64-encoded data.
+func Image(mediaType, base64Data string) Block {
+	return Block{Type: BlockImage, MediaType: mediaType, Data: base64Data}
 }
 
 // TextContent returns the concatenated text blocks of the message.
