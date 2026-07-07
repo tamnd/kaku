@@ -15,8 +15,10 @@ var names = []string{"KAKU.md", "AGENTS.md", "CLAUDE.md"}
 
 // Instructions walks from dir up to the filesystem root collecting the
 // nearest instruction files, then appends every .md fact file from
-// dir/.kaku/memory/. Returns "" when there is nothing.
-func Instructions(dir string) string {
+// dir/.kaku/memory/, then every file matched by the extra globs (resolved
+// relative to dir). Returns "" when there is nothing. The 48KB budget is
+// shared across all sources; once it is hit the rest are dropped with a note.
+func Instructions(dir string, extra ...string) string {
 	var b strings.Builder
 	add := func(path string) bool {
 		data, err := os.ReadFile(path)
@@ -72,6 +74,25 @@ func Instructions(dir string) string {
 		}
 		sort.Strings(mds)
 		for _, f := range mds {
+			if !add(f) {
+				return b.String()
+			}
+		}
+	}
+
+	for _, g := range extra {
+		if !filepath.IsAbs(g) {
+			g = filepath.Join(dir, g)
+		}
+		matches, err := filepath.Glob(g)
+		if err != nil {
+			continue
+		}
+		sort.Strings(matches)
+		for _, f := range matches {
+			if st, err := os.Stat(f); err != nil || st.IsDir() {
+				continue
+			}
 			if !add(f) {
 				return b.String()
 			}
