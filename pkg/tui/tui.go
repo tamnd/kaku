@@ -45,6 +45,10 @@ type Runtime struct {
 	Themes map[string]Theme
 	Theme  string
 
+	// Keybinds overrides composer action keys by name (model_cycle,
+	// reasoning_cycle, paste_image, editor). Unset actions keep their defaults.
+	Keybinds map[string]string
+
 	// ModelCycle is the ordered list of model refs ctrl+n steps through. Empty
 	// means cycle every entry in Models. Reasoning is the starting reasoning
 	// level and SetReasoning applies a new one live; nil disables /thinking.
@@ -150,6 +154,7 @@ type model struct {
 	themeName string
 	st        styles
 	reasoning string
+	keys      keymap
 
 	// pendingCtx holds !cmd shell output to prepend to the next prompt.
 	pendingCtx []string
@@ -195,6 +200,7 @@ func newModel(ctx context.Context, rt Runtime) *model {
 		themeName: name,
 		st:        st,
 		reasoning: rt.Reasoning,
+		keys:      newKeymap(rt.Keybinds),
 	}
 	m.applyReasoningPrompt()
 
@@ -345,27 +351,31 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			}
-			switch msg.String() {
-			case "ctrl+c":
-				return m, tea.Quit
-			case "ctrl+n":
+			// Rebindable composer actions dispatch by name, so a config keymap
+			// can move them without touching the fixed core keys below.
+			switch m.keys.action(msg.String()) {
+			case "model_cycle":
 				cmd := m.cycleModel(1)
 				m.refresh()
 				return m, cmd
-			case "shift+tab":
+			case "reasoning_cycle":
 				m.cycleReasoning()
 				m.refresh()
 				return m, nil
-			case "ctrl+v":
+			case "paste_image":
 				if note := m.pasteImage(); note != "" {
 					m.entries = append(m.entries, entry{kind: "info", text: note})
 				}
 				m.refresh()
 				return m, nil
-			case "ctrl+g":
+			case "editor":
 				// Hand the draft to $EDITOR for a real editing buffer, then load
 				// whatever comes back into the composer.
 				return m, openEditor(m.ta.Value())
+			}
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
 			case "enter":
 				raw := strings.TrimSpace(m.ta.Value())
 				if raw == "" {

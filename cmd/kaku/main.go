@@ -97,6 +97,7 @@ func main() {
 					DeleteSession: rt.deleteSession,
 					Themes:        loadThemes(rt.dir),
 					Theme:         rt.cfg.Theme,
+					Keybinds:      rt.cfg.Keybinds,
 					ModelCycle:    rt.cfg.ModelCycle,
 					Reasoning:     rt.agent.Reasoning,
 					SetReasoning:  rt.setReasoning,

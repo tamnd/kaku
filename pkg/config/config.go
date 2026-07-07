@@ -51,6 +51,10 @@ type Config struct {
 	// the TUI. Empty means cycle every resolvable model.
 	ModelCycle []string `json:"models,omitempty"`
 
+	// Keybinds overrides TUI composer action keys by name (model_cycle,
+	// reasoning_cycle, paste_image, editor). Unset actions keep their defaults.
+	Keybinds map[string]string `json:"keybinds,omitempty"`
+
 	Permissions  Permissions            `json:"permissions"`
 	MCPServers   map[string]MCPServer   `json:"mcpServers,omitempty"`
 	Providers    map[string]ProviderDef `json:"providers,omitempty"` // named custom providers
@@ -175,6 +179,12 @@ func merge(c, over *Config) {
 	}
 	if len(over.ModelCycle) > 0 {
 		c.ModelCycle = over.ModelCycle
+	}
+	if len(over.Keybinds) > 0 {
+		if c.Keybinds == nil {
+			c.Keybinds = map[string]string{}
+		}
+		maps.Copy(c.Keybinds, over.Keybinds)
 	}
 	if over.Permissions.Mode != "" {
 		c.Permissions.Mode = over.Permissions.Mode

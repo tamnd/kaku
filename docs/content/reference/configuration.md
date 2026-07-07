@@ -79,6 +79,7 @@ Command-line flags override all three for that run.
 | `formatter` | Format files after a write or edit. `true` enables the builtins, `false` (default) is off. An object enables them and tweaks: see below. |
 | `reasoning` | Global default reasoning level: `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`. A per-model setting or the `--thinking` flag overrides it. |
 | `theme` | TUI color theme. Builtins are `dark` (default) and `light`; custom themes load from `~/.kaku/themes/*.json` and `.kaku/themes/*.json`. Switch live with `/theme`. |
+| `keybinds` | Override TUI composer keys by action name. See [Keybinds](#keybinds). |
 | `providers.<name>` | A named custom provider: its wire format, endpoint, credential, and models. See below. |
 
 ## Named providers
@@ -112,6 +113,28 @@ Reference a model as `provider/model` (`zen/big-pickle`) or, when the name is un
 A `:level` suffix sets reasoning for that run: `zen/big-pickle:high`.
 A bare name that is not found in any provider map is treated as a model on the default provider, so `--model claude-opus-4-8` still works with no `providers` block at all.
 Run `kaku models` to print every model kaku can resolve.
+
+## Keybinds
+
+`keybinds` remaps the TUI composer's action keys. Each entry is an action name mapped to a key string; unset actions keep their defaults. Core keys (`enter` to send, `ctrl+c` to quit, `esc` to interrupt, `@` for the file picker) are fixed so a bad config cannot lock you out.
+
+```json
+{
+  "keybinds": {
+    "editor": "ctrl+e",
+    "paste_image": "ctrl+y"
+  }
+}
+```
+
+| Action | Default | What it does |
+|---|---|---|
+| `model_cycle` | `ctrl+n` | Step to the next model in the cycle list. |
+| `reasoning_cycle` | `shift+tab` | Step the reasoning level. |
+| `paste_image` | `ctrl+v` | Attach an image from the system clipboard. |
+| `editor` | `ctrl+g` | Open the draft in `$EDITOR`. |
+
+Key strings follow Bubble Tea's names: `ctrl+x`, `alt+enter`, `f2`, and so on.
 
 ## Credential order
 

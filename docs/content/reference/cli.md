@@ -129,6 +129,9 @@ before sending. A model without vision support will ignore the image blocks.
 falling back to `vi`) so you can compose a long message in a real editing buffer. Save
 and quit the editor and the edited text loads back into the composer, ready to send.
 
+The composer action keys (`ctrl+n`, `shift+tab`, `ctrl+v`, `ctrl+g`) can be remapped
+with the `keybinds` config block; see the configuration reference.
+
 Dialogs (help, the model picker, errors, and permission prompts) open centered over
 the transcript. A read-and-dismiss dialog closes on `esc` or `enter`; the picker
 takes the arrow keys.
