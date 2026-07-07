@@ -43,6 +43,8 @@ Command-line flags override all three for that run.
 
   "tools": {"fetch": false, "mcp__*": true},
 
+  "formatter": true,
+
   "reasoning": "medium",
 
   "providers": {
@@ -74,6 +76,7 @@ Command-line flags override all three for that run.
 | `hooks.<event>` | Commands to run on `pre_tool`, `post_tool`, `user_prompt`, or `stop`; `match` is a glob on the tool name, exit 2 blocks the action. |
 | `instructions` | Extra instruction-file globs, resolved relative to the project root, appended to the system prompt after `KAKU.md` and the memory files. |
 | `tools.<glob>` | Enable or disable tools by name glob. `false` removes the tool from the registry so the model never sees it; the `--tools`/`--exclude-tools` flags override this. |
+| `formatter` | Format files after a write or edit. `true` enables the builtins, `false` (default) is off. An object enables them and tweaks: see below. |
 | `reasoning` | Global default reasoning level: `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`. A per-model setting or the `--thinking` flag overrides it. |
 | `theme` | TUI color theme. Builtins are `dark` (default) and `light`; custom themes load from `~/.kaku/themes/*.json` and `.kaku/themes/*.json`. Switch live with `/theme`. |
 | `providers.<name>` | A named custom provider: its wire format, endpoint, credential, and models. See below. |
@@ -134,6 +137,30 @@ A rule can also name a category, which expands to its member tools at load. Any 
 So `"deny": ["edit"]` blocks both `edit` and `write`, and `"edit(docs/*)"` gates writes under `docs/` for both.
 
 `--dangerously-skip-permissions` is a loud alias for `--mode auto`: it allows every tool without prompting.
+
+## Formatters on write
+
+With `formatter` on, kaku runs a formatter over each file the `write` and `edit` tools touch, matched by extension, so the model reads canonical files and diffs stay small. It is off by default, so today's raw-write behavior is preserved until you opt in.
+
+`"formatter": true` enables the builtins:
+
+| Formatter | Extensions | Command |
+|---|---|---|
+| `gofmt` | `.go` | `gofmt -w` |
+| `rustfmt` | `.rs` | `rustfmt` |
+| `prettier` | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.css`, `.html`, `.json`, `.md`, `.yaml`, `.yml` | `prettier --write` |
+| `ruff` | `.py` | `ruff format` |
+
+A formatter only runs when its binary is on `PATH`; a missing one is a silent skip, and a formatter that fails leaves the file as written. To disable a builtin or add your own, use the object form:
+
+```json
+"formatter": {
+  "gofmt": {"disabled": true},
+  "deno": {"command": ["deno", "fmt", "$FILE"], "extensions": [".md"]}
+}
+```
+
+`$FILE` is replaced with the written path. The object form still enables the other builtins.
 
 ## Project instructions
 

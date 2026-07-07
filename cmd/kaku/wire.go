@@ -152,7 +152,7 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		return nil, err
 	}
 
-	base := builtin.All(dir)
+	base := builtin.All(dir, buildFormatter(dir, cfg.Formatter))
 	reg := tool.NewRegistry(base...)
 	builtinNames := map[string]bool{}
 	for _, t := range base {
@@ -272,6 +272,19 @@ func plural(n int, noun string) string {
 		return fmt.Sprintf("1 %s", noun)
 	}
 	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// buildFormatter turns the config's formatter settings into a builtin
+// formatter, or nil when formatting is off.
+func buildFormatter(dir string, fc config.FormatterConfig) *builtin.Formatter {
+	if !fc.Enabled {
+		return nil
+	}
+	specs := map[string]builtin.FormatSpec{}
+	for name, s := range fc.Specs {
+		specs[name] = builtin.FormatSpec{Disabled: s.Disabled, Command: s.Command, Extensions: s.Extensions}
+	}
+	return builtin.NewFormatter(dir, true, specs)
 }
 
 // headerSetter is implemented by the providers that accept extra HTTP headers.

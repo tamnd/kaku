@@ -11,7 +11,7 @@ import (
 	"github.com/tamnd/kaku/pkg/tool"
 )
 
-func editTool(workdir string) tool.Tool {
+func editTool(workdir string, fmtr *Formatter) tool.Tool {
 	return tool.Func{
 		ToolName: "edit",
 		Desc:     "Replace an exact string in a file. old_string must match the file exactly and, unless replace_all is true, must appear exactly once; include surrounding lines to disambiguate.",
@@ -66,6 +66,7 @@ func editTool(workdir string) tool.Tool {
 			if err := os.WriteFile(path, []byte(content), info.Mode().Perm()); err != nil {
 				return "", fmt.Errorf("edit: %w", err)
 			}
+			fmtr.Format(path)
 			return fmt.Sprintf("replaced %d occurrence(s) in %s", replaced, path), nil
 		},
 	}
