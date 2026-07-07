@@ -31,6 +31,11 @@ type Runtime struct {
 	Dir         string
 	MCPFailures map[string]error
 
+	// Themes is the palette set /theme chooses from; Theme is the selected
+	// name. When Themes is empty the builtin dark theme is used.
+	Themes map[string]Theme
+	Theme  string
+
 	// Models is the list the /model picker offers. SwitchModel applies a
 	// choice, rebuilding the provider so a cross-provider switch works and a
 	// bad name fails loudly instead of poisoning the next request.
@@ -117,21 +122,26 @@ type model struct {
 	cancel context.CancelFunc
 	ask    *askMsg
 	dialog *dialogState
+
+	themes    map[string]Theme
+	themeName string
+	st        styles
 }
 
-var (
-	userStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-	toolStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	dimStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	errStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	footStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	promptStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("5"))
-)
-
 func newModel(ctx context.Context, rt Runtime) *model {
+	themes := rt.Themes
+	if len(themes) == 0 {
+		themes = LoadThemes()
+	}
+	name := rt.Theme
+	if name == "" {
+		name = "dark"
+	}
+	st := newStyles(pickTheme(themes, name))
+
 	ta := textarea.New()
 	ta.Placeholder = "ask kaku anything, /help for commands"
-	ta.Prompt = promptStyle.Render("> ")
+	ta.Prompt = st.prompt.Render("> ")
 	ta.SetHeight(2)
 	ta.ShowLineNumbers = false
 	ta.Focus()
@@ -140,11 +150,14 @@ func newModel(ctx context.Context, rt Runtime) *model {
 	sp.Spinner = spinner.MiniDot
 
 	m := &model{
-		rt:      rt,
-		rootCtx: ctx,
-		ta:      ta,
-		spin:    sp,
-		events:  make(chan tea.Msg, 256),
+		rt:        rt,
+		rootCtx:   ctx,
+		ta:        ta,
+		spin:      sp,
+		events:    make(chan tea.Msg, 256),
+		themes:    themes,
+		themeName: name,
+		st:        st,
 	}
 
 	m.entries = append(m.entries, entry{kind: "info",
@@ -361,6 +374,9 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 	case "new":
 		m.newSession()
 		return nil, true
+	case "theme":
+		m.setTheme(rest)
+		return nil, true
 	case "name", "rename":
 		if rest == "" {
 			m.entries = append(m.entries, entry{kind: "info", text: "usage: /name <title>"})
@@ -402,6 +418,38 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 		return nil, true
 	}
 	return nil, false
+}
+
+// setTheme switches the active theme, or lists the available names when the
+// argument is empty or does not match one.
+func (m *model) setTheme(name string) {
+	if name == "" {
+		m.entries = append(m.entries, entry{kind: "info", text: m.themeList()})
+		return
+	}
+	if _, ok := m.themes[name]; !ok {
+		m.entries = append(m.entries, entry{kind: "info",
+			text: "no theme " + name + "\n" + m.themeList()})
+		return
+	}
+	m.themeName = name
+	m.st = newStyles(m.themes[name])
+	m.ta.Prompt = m.st.prompt.Render("> ")
+	m.entries = append(m.entries, entry{kind: "info", text: "theme: " + name})
+}
+
+// themeList renders the available themes with the current one marked.
+func (m *model) themeList() string {
+	var b strings.Builder
+	b.WriteString("themes:")
+	for _, n := range themeNames(m.themes) {
+		mark := "  "
+		if n == m.themeName {
+			mark = "› "
+		}
+		fmt.Fprintf(&b, "\n%s%s", mark, n)
+	}
+	return b.String()
 }
 
 // newSession swaps in a fresh session and clears the transcript view.
@@ -485,15 +533,15 @@ func (m *model) refresh() {
 		var line string
 		switch e.kind {
 		case "user":
-			line = userStyle.Render("you ") + e.text
+			line = m.st.user.Render("you ") + e.text
 		case "assistant":
 			line = e.text
 		case "tool":
-			line = toolStyle.Render("● ") + e.text
+			line = m.st.tool.Render("● ") + e.text
 		case "info":
-			line = dimStyle.Render(e.text)
+			line = m.st.dim.Render(e.text)
 		case "error":
-			line = errStyle.Render(e.text)
+			line = m.st.err.Render(e.text)
 		}
 		b.WriteString(wrap.Render(line))
 		b.WriteString("\n\n")
@@ -526,7 +574,7 @@ func (m *model) View() string {
 	if m.state == stateRunning {
 		status = m.spin.View() + " working, esc interrupts · " + status
 	}
-	parts = append(parts, footStyle.Render(status))
+	parts = append(parts, m.st.foot.Render(status))
 
 	return strings.Join(parts, "\n")
 }

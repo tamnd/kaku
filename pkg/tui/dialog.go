@@ -43,13 +43,7 @@ type dialogState struct {
 	onPick func(string) tea.Cmd // picker selection, receives the row value
 }
 
-var (
-	dialogBox        = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 2)
-	dialogTitleStyle = lipgloss.NewStyle().Bold(true)
-	dialogHintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	dialogDescStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	pickSelectStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
-)
+var dialogBox = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 2)
 
 // showError opens a red error dialog with a cleaned title and body.
 func (m *model) showError(title, body string) {
@@ -95,7 +89,7 @@ func (m *model) renderDialog() string {
 	width := min(max(m.width-8, 24), 80)
 
 	var b strings.Builder
-	b.WriteString(dialogTitleStyle.Render(d.title))
+	b.WriteString(m.st.dialogTitle.Render(d.title))
 	b.WriteString("\n\n")
 
 	switch d.kind {
@@ -103,12 +97,12 @@ func (m *model) renderDialog() string {
 		for i, it := range d.items {
 			label := it.label
 			if it.desc != "" {
-				label += "  " + dialogDescStyle.Render(it.desc)
+				label += "  " + m.st.dialogDesc.Render(it.desc)
 			}
 			if i == d.cursor {
-				b.WriteString(pickSelectStyle.Render("› " + it.label))
+				b.WriteString(m.st.pick.Render("› " + it.label))
 				if it.desc != "" {
-					b.WriteString("  " + dialogDescStyle.Render(it.desc))
+					b.WriteString("  " + m.st.dialogDesc.Render(it.desc))
 				}
 			} else {
 				b.WriteString("  " + label)
@@ -116,16 +110,16 @@ func (m *model) renderDialog() string {
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
-		b.WriteString(dialogHintStyle.Render("↑/↓ move · enter select · esc cancel"))
+		b.WriteString(m.st.dialogHint.Render("↑/↓ move · enter select · esc cancel"))
 	default:
 		b.WriteString(d.body)
 		b.WriteString("\n\n")
-		b.WriteString(dialogHintStyle.Render("esc or enter to dismiss"))
+		b.WriteString(m.st.dialogHint.Render("esc or enter to dismiss"))
 	}
 
-	color := lipgloss.Color("5")
+	color := m.st.borderAccent
 	if d.kind == dlgError {
-		color = lipgloss.Color("1")
+		color = m.st.borderError
 	}
 	box := dialogBox.BorderForeground(color).Width(width).Render(b.String())
 	return lipgloss.Place(m.width, m.vpHeight(), lipgloss.Center, lipgloss.Center, box)
@@ -134,10 +128,10 @@ func (m *model) renderDialog() string {
 // renderAsk draws the permission prompt as a centered confirm dialog.
 func (m *model) renderAsk() string {
 	width := min(max(m.width-8, 24), 80)
-	content := dialogTitleStyle.Render("Run "+m.ask.tool+"?") + "\n\n" +
-		toolStyle.Render(oneLine(m.ask.arg, width-6)) + "\n\n" +
-		dialogHintStyle.Render("[y] once   [a] always allow   [n] deny")
-	box := dialogBox.BorderForeground(lipgloss.Color("3")).Width(width).Render(content)
+	content := m.st.dialogTitle.Render("Run "+m.ask.tool+"?") + "\n\n" +
+		m.st.tool.Render(oneLine(m.ask.arg, width-6)) + "\n\n" +
+		m.st.dialogHint.Render("[y] once   [a] always allow   [n] deny")
+	box := dialogBox.BorderForeground(m.st.borderWarn).Width(width).Render(content)
 	return lipgloss.Place(m.width, m.vpHeight(), lipgloss.Center, lipgloss.Center, box)
 }
 
@@ -196,6 +190,7 @@ const helpBody = `/help              show this help
 /compact           summarize history to save tokens
 /new               start a fresh session
 /name <title>      rename the current session
+/theme [name]      switch the color theme, or list the choices
 /export [file]     write the session to md, html, or json
 /clear             clear the conversation (the transcript file is kept)
 /quit              exit kaku
