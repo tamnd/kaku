@@ -43,12 +43,36 @@ Requests are serialized, so two clients cannot interleave one conversation.
 The server is headless: ask-mode prompts degrade to deny, so pass `--mode auto` or allow rules for the tools it should use.
 Bind stays on localhost by default; put a reverse proxy with auth in front before exposing it further.
 
+## kaku rpc
+
+`kaku serve` is HTTP for one request at a time; `kaku rpc` is the long-lived
+surface an editor or plugin embeds. It drives one conversation over a
+newline-delimited JSON protocol on stdin and stdout, keeps the conversation in
+memory across many prompts, and round-trips permission prompts to the caller
+instead of degrading them to a deny.
+
+```text
+{"type":"ready","model":"claude-sonnet-5","mode":"ask","cwd":"/work"}
+> {"type":"prompt","id":1,"text":"delete build/ then say done"}
+{"type":"permission_request","id":1,"tool":"bash","arg":"rm -rf build/"}
+> {"type":"permission_response","id":1,"allow":true}
+{"type":"tool_start","tool":"bash","input":{"command":"rm -rf build/"}}
+{"type":"text","text":"done"}
+{"type":"response","id":1,"text":"done","usage":{"input_tokens":1400,"output_tokens":12}}
+```
+
+The streamed events (`text`, `thinking`, `tool_start`, `tool_end`, `turn`,
+`info`) are the same shapes as the headless JSON mode, so a consumer written for
+`-p --json` needs almost no new parsing. The command set (`prompt`, `abort`,
+`new_session`, `get_messages`, `set_model`, `get_state`, `permission_response`)
+is in the [CLI reference](/reference/cli/#rpc-mode).
+
 ## The Go SDK
 
 `pkg/engine` is the loop itself:
 
 ```go
-reg := tool.NewRegistry(builtin.All(dir)...)
+reg := tool.NewRegistry(builtin.All(dir, nil, nil)...)
 a := &engine.Agent{
     Provider: anthropic.New(os.Getenv("ANTHROPIC_API_KEY"), ""),
     Model:    "claude-sonnet-5",

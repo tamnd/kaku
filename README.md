@@ -92,7 +92,7 @@ Both surfaces are headless, so ask-mode permission prompts degrade to deny; pass
 The engine is a plain Go package, and every surface above is a thin adapter over it:
 
 ```go
-reg := tool.NewRegistry(builtin.All(dir)...)
+reg := tool.NewRegistry(builtin.All(dir, nil, nil)...)
 a := &engine.Agent{
     Provider: anthropic.New(os.Getenv("ANTHROPIC_API_KEY"), ""),
     Model:    "claude-sonnet-5",
