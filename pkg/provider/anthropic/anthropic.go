@@ -69,6 +69,14 @@ type apiBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   string          `json:"content,omitempty"`
 	IsError   bool            `json:"is_error,omitempty"`
+	Source    *apiSource      `json:"source,omitempty"`
+}
+
+// apiSource carries an inline image for an image block.
+type apiSource struct {
+	Type      string `json:"type"` // "base64"
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type apiMessage struct {
@@ -153,6 +161,12 @@ func buildRequest(req provider.Request) apiRequest {
 			switch b.Type {
 			case provider.BlockText:
 				am.Content = append(am.Content, apiBlock{Type: "text", Text: b.Text})
+			case provider.BlockImage:
+				am.Content = append(am.Content, apiBlock{Type: "image", Source: &apiSource{
+					Type:      "base64",
+					MediaType: b.MediaType,
+					Data:      b.Data,
+				}})
 			case provider.BlockToolUse:
 				input := b.Input
 				if len(input) == 0 {

@@ -109,6 +109,20 @@ func (a *Agent) hooks(ctx context.Context, event, toolName string, payload any) 
 	return res
 }
 
+// userMessage builds a user turn from text and optional image blocks. With no
+// images it is exactly provider.Text, so the common path is unchanged.
+func userMessage(text string, images []provider.Block) provider.Message {
+	if len(images) == 0 {
+		return provider.Text(provider.RoleUser, text)
+	}
+	content := make([]provider.Block, 0, len(images)+1)
+	if text != "" {
+		content = append(content, provider.Block{Type: provider.BlockText, Text: text})
+	}
+	content = append(content, images...)
+	return provider.Message{Role: provider.RoleUser, Content: content}
+}
+
 func (a *Agent) append(m provider.Message) error {
 	a.Messages = append(a.Messages, m)
 	if a.Store != nil {
@@ -120,10 +134,16 @@ func (a *Agent) append(m provider.Message) error {
 // Run feeds one user input through the loop and returns the final
 // assistant text.
 func (a *Agent) Run(ctx context.Context, input string) (string, error) {
+	return a.RunWith(ctx, input, nil)
+}
+
+// RunWith is Run with image blocks attached to the user turn. The images ride
+// alongside the text in one user message, so the model sees them together.
+func (a *Agent) RunWith(ctx context.Context, input string, images []provider.Block) (string, error) {
 	if res := a.hooks(ctx, "user_prompt", "", map[string]any{"prompt": input}); res.Block {
 		return "", fmt.Errorf("blocked by hook: %s", res.Message)
 	}
-	if err := a.append(provider.Text(provider.RoleUser, input)); err != nil {
+	if err := a.append(userMessage(input, images)); err != nil {
 		return "", err
 	}
 

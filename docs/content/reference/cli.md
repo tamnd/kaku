@@ -103,6 +103,13 @@ Type `@` in the composer to open a fuzzy file picker over the repo (it skips `.g
 `enter` or `tab` to insert the path, `esc` to close. On send, each `@path` inlines the
 file's contents, so `explain @main.go` reaches the model with the file attached.
 
+Images ride along as image blocks rather than inlined text. An `@path` that points at
+a `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp` file attaches the image (`what is @shot.png`),
+and `ctrl+v` attaches an image from the system clipboard (macOS needs `pngpaste`, Linux
+uses `wl-paste` or `xclip`). Attachments show as `[img: name]` chips above the composer
+and clear on send. Large PNG and JPEG images are downscaled to fit 1568px on the long edge
+before sending. A model without vision support will ignore the image blocks.
+
 Dialogs (help, the model picker, errors, and permission prompts) open centered over
 the transcript. A read-and-dismiss dialog closes on `esc` or `enter`; the picker
 takes the arrow keys.

@@ -169,6 +169,34 @@ func TestRetryOn500(t *testing.T) {
 	}
 }
 
+func TestBuildRequestImageBlock(t *testing.T) {
+	out := buildRequest(provider.Request{
+		Model: "m",
+		Messages: []provider.Message{{
+			Role: provider.RoleUser,
+			Content: []provider.Block{
+				{Type: provider.BlockText, Text: "look"},
+				provider.Image("image/jpeg", "BBBB"),
+			},
+		}},
+	})
+	var msg *item
+	for i := range out.Input {
+		if out.Input[i].Type == "message" && out.Input[i].Role == "user" {
+			msg = &out.Input[i]
+		}
+	}
+	if msg == nil {
+		t.Fatal("no user message built")
+	}
+	if len(msg.Content) != 2 || msg.Content[0].Type != "input_text" || msg.Content[1].Type != "input_image" {
+		t.Fatalf("content = %+v", msg.Content)
+	}
+	if msg.Content[1].ImageURL != "data:image/jpeg;base64,BBBB" {
+		t.Fatalf("image url = %q", msg.Content[1].ImageURL)
+	}
+}
+
 func TestBuildRequestReasoning(t *testing.T) {
 	on := buildRequest(provider.Request{Model: "m", Reasoning: "medium"})
 	if on.Reasoning == nil || on.Reasoning.Effort != "medium" {

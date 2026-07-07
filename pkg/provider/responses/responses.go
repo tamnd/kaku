@@ -65,8 +65,9 @@ type apiTool struct {
 }
 
 type contentPart struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"` // input_image: a data URL
 }
 
 // item is one entry in the request input or the response output.
@@ -95,6 +96,14 @@ type apiRequest struct {
 	TopP            *float64      `json:"top_p,omitempty"`
 	Stream          bool          `json:"stream"`
 	Store           bool          `json:"store"`
+}
+
+// dataURL builds the "data:<mime>;base64,<data>" URL an input_image expects.
+func dataURL(mediaType, data string) string {
+	if mediaType == "" {
+		mediaType = "image/png"
+	}
+	return "data:" + mediaType + ";base64," + data
 }
 
 func buildRequest(req provider.Request) apiRequest {
@@ -157,6 +166,7 @@ func buildRequest(req provider.Request) apiRequest {
 			}
 		default:
 			var text strings.Builder
+			var images []provider.Block
 			hasToolResult := false
 			for _, b := range m.Content {
 				switch b.Type {
@@ -169,14 +179,19 @@ func buildRequest(req provider.Request) apiRequest {
 					})
 				case provider.BlockText:
 					text.WriteString(b.Text)
+				case provider.BlockImage:
+					images = append(images, b)
 				}
 			}
-			if text.Len() > 0 || !hasToolResult {
-				out.Input = append(out.Input, item{
-					Type:    "message",
-					Role:    "user",
-					Content: []contentPart{{Type: "input_text", Text: text.String()}},
-				})
+			if text.Len() > 0 || len(images) > 0 || !hasToolResult {
+				parts := []contentPart{{Type: "input_text", Text: text.String()}}
+				for _, img := range images {
+					parts = append(parts, contentPart{
+						Type:     "input_image",
+						ImageURL: dataURL(img.MediaType, img.Data),
+					})
+				}
+				out.Input = append(out.Input, item{Type: "message", Role: "user", Content: parts})
 			}
 		}
 	}
