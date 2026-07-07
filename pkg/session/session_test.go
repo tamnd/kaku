@@ -110,3 +110,30 @@ func TestEmptyStore(t *testing.T) {
 		t.Fatal("latest on empty store should error")
 	}
 }
+
+func TestEphemeralWritesNothing(t *testing.T) {
+	st := testStore(t)
+	s := st.Ephemeral()
+	if err := s.Append(provider.Text(provider.RoleUser, "hello")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddUsage(provider.Usage{InputTokens: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTitle("secret"); err != nil {
+		t.Fatal(err)
+	}
+	// The in-memory view still works.
+	if len(s.Messages()) != 1 || s.Usage().InputTokens != 5 {
+		t.Fatalf("in-memory state lost: %d msgs, usage %+v", len(s.Messages()), s.Usage())
+	}
+	s.Close()
+	// Nothing was persisted, so the store lists no sessions.
+	metas, err := st.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metas) != 0 {
+		t.Fatalf("ephemeral session left %d files on disk", len(metas))
+	}
+}

@@ -34,9 +34,14 @@ These work on the root command and on `serve` and `mcp`:
 | `--base-url` | API base URL, for local servers and proxies. |
 | `--api-key-env` | Environment variable holding the API key. |
 | `--thinking` | Reasoning level for this run: `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Overrides the model default and the config `reasoning` key. |
+| `--hide-thinking` | Do not print thinking, even when reasoning is on. |
 | `--mode` | Permission mode: `plan`, `ask`, or `auto`. |
-| `--resume` | Continue the newest session in this project. |
+| `-c, --continue` | Continue the newest session in this project. `--resume` is a kept alias. |
 | `--session <id>` | Continue a specific session. |
+| `--no-session` | Run without reading or writing a session file: nothing is persisted. |
+| `--title <str>` | Set the session title up front instead of deriving it from the first prompt. |
+| `--output-format <text\|json>` | Headless output format. `text` (default) is human lines; `json` emits one event object per line. |
+| `--json` | Shorthand for `--output-format json`. |
 | `--max-turns` | Cap on model turns per run. |
 | `--no-mcp` | Skip connecting configured MCP servers. |
 | `--sandbox` | Confine bash writes to the working directory. |
@@ -44,6 +49,27 @@ These work on the root command and on `serve` and `mcp`:
 | `--exclude-tools <list>` | Denylist of tools by name glob, comma separated. |
 | `--no-tools` | Run with no tools at all. |
 | `--no-builtin-tools` | Drop the builtin tools but keep MCP and the agent tool. |
+
+## Headless JSON output
+
+`kaku -p --json "..."` streams one JSON object per line so a program can drive the agent.
+The first line is a session header, then one object per event, and the last line on success is a `result` with the final text and token totals.
+On failure the last line is an `error` object and the exit code is non-zero.
+
+```
+{"type":"session","id":"20260707-...","model":"claude-sonnet-5","cwd":"/work"}
+{"type":"text","text":"Looking at the code"}
+{"type":"tool_start","tool":"read","input":{"path":"main.go"}}
+{"type":"tool_end","tool":"read","output":"..."}
+{"type":"turn","input_tokens":1200,"output_tokens":340}
+{"type":"result","text":"Done.","input_tokens":1200,"output_tokens":340}
+```
+
+A consumer that only wants the answer reads the last line:
+
+```bash
+kaku -p --json "list the go files" | jq -c 'select(.type=="result") | .text'
+```
 
 ## TUI commands
 

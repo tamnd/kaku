@@ -33,9 +33,13 @@ type options struct {
 	baseURL        string
 	apiKeyEnv      string
 	thinking       string
+	hideThinking   bool
 	mode           string
 	sessionID      string
 	resume         bool
+	noSession      bool
+	title          string
+	outputFormat   string
 	maxTurns       int
 	noMCP          bool
 	sandbox        bool
@@ -154,6 +158,8 @@ func build(ctx context.Context, o options) (*runtime, error) {
 
 	st := session.NewStore(dir)
 	switch {
+	case o.noSession:
+		rt.sess = st.Ephemeral()
 	case o.sessionID != "":
 		rt.sess, err = st.Open(o.sessionID)
 	case o.resume:
@@ -166,6 +172,9 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	if o.title != "" {
+		rt.sess.SetTitle(o.title)
 	}
 
 	system := engine.DefaultSystem(dir)
