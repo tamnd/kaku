@@ -40,6 +40,12 @@ Each rule is a tool name with an optional argument pattern:
 Deny always wins, then allow, then the mode decides what is left.
 This is how you land on a comfortable middle: ask mode overall, but the commands you run twenty times a day pre-approved.
 
+A rule can name a category instead of a single tool, which saves listing every member. `edit` covers `edit` and `write`, `read` covers `read`, `ls`, `glob`, and `grep`, `bash` is itself, and `webfetch` is `fetch`. So `"deny": ["edit"]` blocks all file writes in one line. Any argument glob applies to each member, so `"allow": ["edit(docs/*)"]` pre-approves writes under `docs/`.
+
+Subagents defined in `.kaku/agents/` can carry their own `permission` block that layers on top of the inherited rules, so a reviewer agent can be denied edits even when the main run is in auto mode. See the subagents guide.
+
+`--dangerously-skip-permissions` is a loud shortcut for `--mode auto`: every tool runs without a prompt. Use it only when you already trust the run.
+
 ## The sandbox
 
 Rules control which calls happen; the sandbox controls what a call can touch once it runs.

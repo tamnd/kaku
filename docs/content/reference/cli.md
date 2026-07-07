@@ -37,6 +37,7 @@ These work on the root command and on `serve` and `mcp`:
 | `--thinking` | Reasoning level for this run: `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Overrides the model default and the config `reasoning` key. |
 | `--hide-thinking` | Do not print thinking, even when reasoning is on. |
 | `--mode` | Permission mode: `plan`, `ask`, or `auto`. |
+| `--dangerously-skip-permissions` | Allow every tool without prompting. A loud alias for `--mode auto`. |
 | `-c, --continue` | Continue the newest session in this project. `--resume` is a kept alias. |
 | `--session <id>` | Continue a specific session. |
 | `--fork <id>` | Copy a session into a new one and continue from the copy. The original is left untouched. |
