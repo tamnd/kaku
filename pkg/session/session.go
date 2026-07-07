@@ -37,6 +37,7 @@ type Meta struct {
 	CreatedAt time.Time
 	Title     string
 	Messages  int
+	Parent    string // the session this one was forked from, empty for a root
 }
 
 type line struct {
@@ -44,6 +45,7 @@ type line struct {
 	TS      time.Time          `json:"ts"`
 	Project string             `json:"project,omitempty"`
 	Title   string             `json:"title,omitempty"`
+	Parent  string             `json:"parent,omitempty"`
 	Message *provider.Message  `json:"message,omitempty"`
 	Usage   *provider.Usage    `json:"usage,omitempty"`
 	Replace []provider.Message `json:"replace,omitempty"`
@@ -134,6 +136,10 @@ func (st *Store) Fork(srcID string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := ns.setParent(srcID); err != nil {
+		ns.Close()
+		return nil, err
+	}
 	if len(msgs) > 0 {
 		if err := ns.ReplaceMessages(msgs); err != nil {
 			ns.Close()
@@ -199,6 +205,9 @@ func (st *Store) Open(id string) (*Session, error) {
 		switch l.Type {
 		case "meta":
 			s.createdAt = l.TS
+			if l.Parent != "" {
+				s.parent = l.Parent
+			}
 		case "message":
 			if l.Message != nil {
 				s.messages = append(s.messages, *l.Message)
@@ -234,6 +243,7 @@ type Session struct {
 	f         *os.File
 	createdAt time.Time
 	title     string
+	parent    string
 	messages  []provider.Message
 	usage     provider.Usage
 }
@@ -243,7 +253,20 @@ func (s *Session) ID() string { return s.id }
 
 // Meta summarizes the session.
 func (s *Session) Meta() Meta {
-	return Meta{ID: s.id, Path: s.path, CreatedAt: s.createdAt, Title: s.title, Messages: len(s.messages)}
+	return Meta{ID: s.id, Path: s.path, CreatedAt: s.createdAt, Title: s.title, Messages: len(s.messages), Parent: s.parent}
+}
+
+// Parent returns the id of the session this one was forked from, or "" for a
+// root session.
+func (s *Session) Parent() string { return s.parent }
+
+// setParent records the fork source in a meta line. It runs once at fork time.
+func (s *Session) setParent(parent string) error {
+	if err := s.write(line{Type: "meta", TS: time.Now().UTC(), Parent: parent}); err != nil {
+		return err
+	}
+	s.parent = parent
+	return nil
 }
 
 // Messages returns the current in-memory history.
@@ -319,4 +342,34 @@ func (m Meta) String() string {
 		title = "(untitled)"
 	}
 	return fmt.Sprintf("%s  %3d msgs  %s", m.ID, m.Messages, title)
+}
+
+// Node is one session in the fork tree, with the sessions forked from it.
+type Node struct {
+	Meta
+	Children []*Node
+}
+
+// Tree returns the project's sessions as a forest of fork lineages. A session
+// is a child of the session named by its Parent; a session whose parent is
+// missing or empty is a root. Roots and children are each ordered newest first.
+func (st *Store) Tree() ([]*Node, error) {
+	metas, err := st.List()
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[string]*Node, len(metas))
+	for _, m := range metas {
+		byID[m.ID] = &Node{Meta: m}
+	}
+	var roots []*Node
+	for _, m := range metas {
+		n := byID[m.ID]
+		if parent, ok := byID[m.Parent]; ok && m.Parent != "" {
+			parent.Children = append(parent.Children, n)
+		} else {
+			roots = append(roots, n)
+		}
+	}
+	return roots, nil
 }
