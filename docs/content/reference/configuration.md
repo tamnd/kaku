@@ -75,6 +75,7 @@ Command-line flags override all three for that run.
 | `instructions` | Extra instruction-file globs, resolved relative to the project root, appended to the system prompt after `KAKU.md` and the memory files. |
 | `tools.<glob>` | Enable or disable tools by name glob. `false` removes the tool from the registry so the model never sees it; the `--tools`/`--exclude-tools` flags override this. |
 | `reasoning` | Global default reasoning level: `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`. A per-model setting or the `--thinking` flag overrides it. |
+| `theme` | TUI color theme. Builtins are `dark` (default) and `light`; custom themes load from `~/.kaku/themes/*.json` and `.kaku/themes/*.json`. Switch live with `/theme`. |
 | `providers.<name>` | A named custom provider: its wire format, endpoint, credential, and models. See below. |
 
 ## Named providers

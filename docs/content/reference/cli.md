@@ -79,6 +79,7 @@ kaku -p --json "list the go files" | jq -c 'select(.type=="result") | .text'
 | `/model [name]` | Switch the model. With no name it opens a picker over the models in your config; move with the arrow keys, `enter` selects, `esc` cancels. A name that does not resolve fails in a dialog instead of poisoning the next request. |
 | `/compact` | Summarize old turns now instead of waiting for the budget. |
 | `/skills` | List available skills. |
+| `/theme [name]` | Switch the color theme, or list the choices. Builtins are `dark` and `light`; custom themes load from `~/.kaku/themes/*.json` and `.kaku/themes/*.json`. |
 | `/new` | Close the current session and start a fresh one. |
 | `/name <title>` | Rename the current session. |
 | `/export [file]` | Write the session to a file; the extension picks the format (`.md`, `.html`, `.json`), defaulting to `<id>.md`. |

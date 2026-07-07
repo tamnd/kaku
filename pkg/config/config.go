@@ -44,6 +44,7 @@ type Config struct {
 	Reasoning  string `json:"reasoning,omitempty"` // global default reasoning level
 	MaxTokens  int    `json:"max_tokens,omitempty"`
 	MaxTurns   int    `json:"max_turns,omitempty"`
+	Theme      string `json:"theme,omitempty"` // TUI theme name (dark, light, or a custom one)
 
 	Permissions  Permissions            `json:"permissions"`
 	MCPServers   map[string]MCPServer   `json:"mcpServers,omitempty"`
@@ -124,6 +125,9 @@ func merge(c, over *Config) {
 	}
 	if over.MaxTurns != 0 {
 		c.MaxTurns = over.MaxTurns
+	}
+	if over.Theme != "" {
+		c.Theme = over.Theme
 	}
 	if over.Permissions.Mode != "" {
 		c.Permissions.Mode = over.Permissions.Mode

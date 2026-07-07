@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -89,6 +90,8 @@ func main() {
 					NewSession:  rt.startNewSession,
 					Rename:      rt.renameSession,
 					Export:      rt.exportSession,
+					Themes:      loadThemes(rt.dir),
+					Theme:       rt.cfg.Theme,
 				}, nil
 			}})
 		},
@@ -502,6 +505,17 @@ func isTTY(f *os.File) bool {
 		return false
 	}
 	return st.Mode()&os.ModeCharDevice != 0
+}
+
+// loadThemes gathers the builtin themes plus any under the user's and the
+// project's .kaku/themes directories.
+func loadThemes(dir string) map[string]tui.Theme {
+	var dirs []string
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".kaku", "themes"))
+	}
+	dirs = append(dirs, filepath.Join(dir, ".kaku", "themes"))
+	return tui.LoadThemes(dirs...)
 }
 
 // modelChoices turns the resolvable models into picker rows. The flat default
