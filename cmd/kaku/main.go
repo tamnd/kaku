@@ -75,26 +75,29 @@ func main() {
 					return tui.Runtime{}, err
 				}
 				return tui.Runtime{
-					Agent:        rt.agent,
-					Session:      rt.sess,
-					Skills:       rt.skills,
-					Expand:       rt.expandSkills,
-					Close:        rt.close,
-					Model:        rt.agent.Model,
-					Mode:         rt.cfg.Permissions.Mode,
-					Dir:          rt.dir,
-					MCPFailures:  rt.mcpErrs,
-					Models:       modelChoices(rt.cfg, rt.agent.Model),
-					SwitchModel:  rt.switchModel(o),
-					Compact:      rt.compactor.Force,
-					NewSession:   rt.startNewSession,
-					Rename:       rt.renameSession,
-					Export:       rt.exportSession,
-					Themes:       loadThemes(rt.dir),
-					Theme:        rt.cfg.Theme,
-					ModelCycle:   rt.cfg.ModelCycle,
-					Reasoning:    rt.agent.Reasoning,
-					SetReasoning: rt.setReasoning,
+					Agent:         rt.agent,
+					Session:       rt.sess,
+					Skills:        rt.skills,
+					Expand:        rt.expandSkills,
+					Close:         rt.close,
+					Model:         rt.agent.Model,
+					Mode:          rt.cfg.Permissions.Mode,
+					Dir:           rt.dir,
+					MCPFailures:   rt.mcpErrs,
+					Models:        modelChoices(rt.cfg, rt.agent.Model),
+					SwitchModel:   rt.switchModel(o),
+					Compact:       rt.compactor.Force,
+					NewSession:    rt.startNewSession,
+					Rename:        rt.renameSession,
+					Export:        rt.exportSession,
+					Sessions:      rt.listSessions,
+					SwitchSession: rt.openSession,
+					DeleteSession: rt.deleteSession,
+					Themes:        loadThemes(rt.dir),
+					Theme:         rt.cfg.Theme,
+					ModelCycle:    rt.cfg.ModelCycle,
+					Reasoning:     rt.agent.Reasoning,
+					SetReasoning:  rt.setReasoning,
 				}, nil
 			}})
 		},
@@ -128,7 +131,7 @@ func main() {
 	fl.BoolVar(&o.noTools, "no-tools", false, "run with no tools at all")
 	fl.BoolVar(&o.noBuiltinTools, "no-builtin-tools", false, "drop the builtin tools but keep MCP and the agent tool")
 
-	root.AddCommand(sessionsCmd(&o), modelsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), sandboxExecCmd())
+	root.AddCommand(initCmd(&o), sessionsCmd(&o), modelsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), sandboxExecCmd())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -362,6 +365,20 @@ func modelsCmd(o *options) *cobra.Command {
 				fmt.Println(line)
 			}
 			return nil
+		},
+	}
+}
+
+func initCmd(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "init",
+		Short: "Scan the repo and write a starter KAKU.md",
+		Long: "init runs one agent turn that scans the working tree and writes a KAKU.md:\n" +
+			"the detected toolchain, the build and test commands, the layout, and a\n" +
+			"conventions placeholder. Later runs load KAKU.md as project instructions.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPrint(cmd.Context(), *o, engine.InitPrompt)
 		},
 	}
 }

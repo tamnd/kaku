@@ -306,6 +306,32 @@ func (r *runtime) startNewSession() (*session.Session, error) {
 	return s, nil
 }
 
+// listSessions returns the saved sessions for the /sessions picker.
+func (r *runtime) listSessions() ([]session.Meta, error) {
+	return session.NewStore(r.dir).List()
+}
+
+// openSession closes the current session and switches to an existing one,
+// loading its history into the agent. It returns the adopted session.
+func (r *runtime) openSession(id string) (*session.Session, error) {
+	s, err := session.NewStore(r.dir).Open(id)
+	if err != nil {
+		return nil, err
+	}
+	if r.sess != nil {
+		r.sess.Close()
+	}
+	r.sess = s
+	r.agent.Store = s
+	r.agent.Messages = s.Messages()
+	return s, nil
+}
+
+// deleteSession removes a saved session file.
+func (r *runtime) deleteSession(id string) error {
+	return session.NewStore(r.dir).Delete(id)
+}
+
 // renameSession sets the current session's title.
 func (r *runtime) renameSession(title string) error {
 	if r.sess == nil {
