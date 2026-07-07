@@ -14,6 +14,7 @@ import (
 	"github.com/tamnd/kaku/pkg/config"
 	"github.com/tamnd/kaku/pkg/engine"
 	"github.com/tamnd/kaku/pkg/hook"
+	"github.com/tamnd/kaku/pkg/lsp"
 	"github.com/tamnd/kaku/pkg/mcp"
 	"github.com/tamnd/kaku/pkg/memory"
 	"github.com/tamnd/kaku/pkg/mention"
@@ -64,6 +65,7 @@ type runtime struct {
 	compactor *compact.Compactor
 	mcpClose  func()
 	mcpErrs   map[string]error
+	lsp       *lsp.Manager
 	dir       string
 	cost      *config.Cost // price of the active model, nil when unpriced
 	summary   string       // one-line resource summary for the TUI header
@@ -82,6 +84,7 @@ func (r *runtime) close() {
 	if r.mcpClose != nil {
 		r.mcpClose()
 	}
+	r.lsp.Close()
 	if r.sess != nil {
 		r.sess.Close()
 	}
@@ -160,7 +163,8 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		return nil, err
 	}
 
-	base := builtin.All(dir, buildFormatter(dir, cfg.Formatter))
+	lspMgr := buildLSP(dir, cfg.LSP)
+	base := builtin.All(dir, buildFormatter(dir, cfg.Formatter), diagnoser(lspMgr))
 	reg := tool.NewRegistry(base...)
 	builtinNames := map[string]bool{}
 	for _, t := range base {
@@ -170,7 +174,7 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		reg.Add(builtin.BashSandboxed(dir))
 	}
 
-	rt := &runtime{cfg: cfg, dir: dir}
+	rt := &runtime{cfg: cfg, dir: dir, lsp: lspMgr}
 	if !o.noMCP && len(cfg.MCPServers) > 0 {
 		rt.mcpClose, rt.mcpErrs = mcp.Register(ctx, cfg.MCPServers, reg)
 	}
@@ -301,6 +305,29 @@ func buildFormatter(dir string, fc config.FormatterConfig) *builtin.Formatter {
 		specs[name] = builtin.FormatSpec{Disabled: s.Disabled, Command: s.Command, Extensions: s.Extensions}
 	}
 	return builtin.NewFormatter(dir, true, specs)
+}
+
+// buildLSP turns the config's lsp settings into a manager, or nil when
+// diagnostics are off.
+func buildLSP(dir string, lc config.LSPConfig) *lsp.Manager {
+	if !lc.Enabled {
+		return nil
+	}
+	specs := map[string]lsp.Spec{}
+	for name, s := range lc.Specs {
+		specs[name] = lsp.Spec{Disabled: s.Disabled, Command: s.Command, Extensions: s.Extensions, LangID: s.LangID}
+	}
+	return lsp.New(dir, true, specs)
+}
+
+// diagnoser adapts an LSP manager to the builtin Diagnoser interface, returning
+// a nil interface when the manager is off so the tools skip diagnostics
+// entirely rather than call into a nil pointer.
+func diagnoser(m *lsp.Manager) builtin.Diagnoser {
+	if m == nil {
+		return nil
+	}
+	return m
 }
 
 // headerSetter is implemented by the providers that accept extra HTTP headers.

@@ -62,6 +62,7 @@ type Config struct {
 	Instructions []string               `json:"instructions,omitempty"` // extra instruction-file globs
 	Tools        map[string]bool        `json:"tools,omitempty"`        // enable/disable tools by name glob
 	Formatter    FormatterConfig        `json:"formatter"`              // post-write formatting
+	LSP          LSPConfig              `json:"lsp"`                    // language-server diagnostics after write/edit
 
 	// AuthLookup, when set, supplies a stored API key for a provider name when
 	// no explicit key resolves from config or the environment. build wires it
@@ -99,6 +100,40 @@ func (f *FormatterConfig) UnmarshalJSON(data []byte) error {
 	}
 	f.Enabled = true
 	f.Specs = m
+	return nil
+}
+
+// LSPConfig turns on language-server diagnostics after a write or edit. Like
+// the formatter it accepts a bare bool (true enables the builtin servers, false
+// or absent is off) or an object mapping a server name to its overrides, which
+// also enables the builtins.
+type LSPConfig struct {
+	Enabled bool
+	Specs   map[string]LSPServerSpec
+}
+
+// LSPServerSpec overrides a builtin language server or registers a custom one.
+type LSPServerSpec struct {
+	Disabled   bool     `json:"disabled,omitempty"`
+	Command    []string `json:"command,omitempty"`
+	Extensions []string `json:"extensions,omitempty"`
+	LangID     string   `json:"language_id,omitempty"`
+}
+
+// UnmarshalJSON accepts either a bool or an object of name -> spec.
+func (l *LSPConfig) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "true" || trimmed == "false" {
+		l.Enabled = trimmed == "true"
+		l.Specs = nil
+		return nil
+	}
+	var m map[string]LSPServerSpec
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+	l.Enabled = true
+	l.Specs = m
 	return nil
 }
 
@@ -220,6 +255,9 @@ func merge(c, over *Config) {
 	}
 	if over.Formatter.Enabled || len(over.Formatter.Specs) > 0 {
 		c.Formatter = over.Formatter
+	}
+	if over.LSP.Enabled || len(over.LSP.Specs) > 0 {
+		c.LSP = over.LSP
 	}
 }
 

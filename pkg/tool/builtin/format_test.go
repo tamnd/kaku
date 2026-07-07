@@ -33,7 +33,7 @@ func TestFormatterRewritesAfterWrite(t *testing.T) {
 	if f == nil {
 		t.Fatal("formatter should be enabled")
 	}
-	mustRun(t, writeTool(work, f), `{"file_path":"main.go","content":"package main\n"}`)
+	mustRun(t, writeTool(work, f, nil), `{"file_path":"main.go","content":"package main\n"}`)
 	got, err := os.ReadFile(filepath.Join(work, "main.go"))
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +47,7 @@ func TestFormatterSkipsUnmatchedExtension(t *testing.T) {
 	fakeFormatter(t, "gofmt")
 	work := t.TempDir()
 	f := NewFormatter(work, true, nil)
-	mustRun(t, writeTool(work, f), `{"file_path":"notes.txt","content":"hello\n"}`)
+	mustRun(t, writeTool(work, f, nil), `{"file_path":"notes.txt","content":"hello\n"}`)
 	got, _ := os.ReadFile(filepath.Join(work, "notes.txt"))
 	if string(got) != "hello\n" {
 		t.Errorf("a .txt file should be left alone, got %q", got)

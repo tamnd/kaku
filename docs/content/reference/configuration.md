@@ -77,6 +77,7 @@ Command-line flags override all three for that run.
 | `instructions` | Extra instruction-file globs, resolved relative to the project root, appended to the system prompt after `KAKU.md` and the memory files. |
 | `tools.<glob>` | Enable or disable tools by name glob. `false` removes the tool from the registry so the model never sees it; the `--tools`/`--exclude-tools` flags override this. |
 | `formatter` | Format files after a write or edit. `true` enables the builtins, `false` (default) is off. An object enables them and tweaks: see below. |
+| `lsp` | Attach language-server diagnostics after a write or edit. `true` enables the builtins, `false` (default) is off. An object enables them and tweaks: see below. |
 | `reasoning` | Global default reasoning level: `off`, `minimal`, `low`, `medium`, `high`, or `xhigh`. A per-model setting or the `--thinking` flag overrides it. |
 | `theme` | TUI color theme. Builtins are `dark` (default) and `light`; custom themes load from `~/.kaku/themes/*.json` and `.kaku/themes/*.json`. Switch live with `/theme`. |
 | `keybinds` | Override TUI composer keys by action name. See [Keybinds](#keybinds). |
@@ -197,6 +198,31 @@ A formatter only runs when its binary is on `PATH`; a missing one is a silent sk
 ```
 
 `$FILE` is replaced with the written path. The object form still enables the other builtins.
+
+## LSP diagnostics on write
+
+With `lsp` on, kaku opens each file the `write` and `edit` tools touch in a matching language server and appends the diagnostics the server reports to the tool result, so the model sees type errors without running a build. Servers start on first touch and stay warm for the session. It is off by default.
+
+`"lsp": true` enables the builtins:
+
+| Server | Extensions | Command |
+|---|---|---|
+| `gopls` | `.go` | `gopls` |
+| `pyright` | `.py` | `pyright-langserver --stdio` |
+| `rust-analyzer` | `.rs` | `rust-analyzer` |
+| `typescript` | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` | `typescript-language-server --stdio` |
+| `clangd` | `.c`, `.cc`, `.cpp`, `.h`, `.hpp` | `clangd` |
+
+A server only runs when its binary is on `PATH`; a missing one is a silent skip, and a file that opens clean adds nothing to the result. To disable a builtin or add your own, use the object form:
+
+```json
+"lsp": {
+  "gopls": {"disabled": true},
+  "zls": {"command": ["zls"], "extensions": [".zig"], "language_id": "zig"}
+}
+```
+
+The object form still enables the other builtins.
 
 ## Project instructions
 

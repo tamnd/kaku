@@ -41,7 +41,7 @@ func writeFile(t *testing.T, dir, name, content string) string {
 }
 
 func TestAllRegisters(t *testing.T) {
-	tools := All(t.TempDir(), nil)
+	tools := All(t.TempDir(), nil, nil)
 	if len(tools) != 8 {
 		t.Fatalf("len = %d", len(tools))
 	}
@@ -90,7 +90,7 @@ func TestRead(t *testing.T) {
 func TestWrite(t *testing.T) {
 	dir := t.TempDir()
 
-	out := mustRun(t, writeTool(dir, nil), `{"file_path":"sub/deep/b.txt","content":"hello"}`)
+	out := mustRun(t, writeTool(dir, nil, nil), `{"file_path":"sub/deep/b.txt","content":"hello"}`)
 	if !strings.Contains(out, "5 bytes") {
 		t.Errorf("out = %q", out)
 	}
@@ -100,13 +100,13 @@ func TestWrite(t *testing.T) {
 	}
 
 	// Overwrite.
-	mustRun(t, writeTool(dir, nil), `{"file_path":"sub/deep/b.txt","content":"bye"}`)
+	mustRun(t, writeTool(dir, nil, nil), `{"file_path":"sub/deep/b.txt","content":"bye"}`)
 	data, _ = os.ReadFile(filepath.Join(dir, "sub/deep/b.txt"))
 	if string(data) != "bye" {
 		t.Errorf("after overwrite = %q", data)
 	}
 
-	if _, err := run(t, writeTool(dir, nil), `{"content":"x"}`); err == nil {
+	if _, err := run(t, writeTool(dir, nil, nil), `{"content":"x"}`); err == nil {
 		t.Error("expected error for missing file_path")
 	}
 }
@@ -116,28 +116,28 @@ func TestEdit(t *testing.T) {
 	path := writeFile(t, dir, "c.txt", "aaa bbb aaa\n")
 
 	// Ambiguous match fails.
-	if _, err := run(t, editTool(dir, nil), `{"file_path":"c.txt","old_string":"aaa","new_string":"xxx"}`); err == nil {
+	if _, err := run(t, editTool(dir, nil, nil), `{"file_path":"c.txt","old_string":"aaa","new_string":"xxx"}`); err == nil {
 		t.Error("expected error for ambiguous old_string")
 	}
 
 	// replace_all.
-	mustRun(t, editTool(dir, nil), `{"file_path":"c.txt","old_string":"aaa","new_string":"xxx","replace_all":true}`)
+	mustRun(t, editTool(dir, nil, nil), `{"file_path":"c.txt","old_string":"aaa","new_string":"xxx","replace_all":true}`)
 	data, _ := os.ReadFile(path)
 	if string(data) != "xxx bbb xxx\n" {
 		t.Errorf("data = %q", data)
 	}
 
 	// Unique replace.
-	mustRun(t, editTool(dir, nil), `{"file_path":"c.txt","old_string":"bbb","new_string":"yyy"}`)
+	mustRun(t, editTool(dir, nil, nil), `{"file_path":"c.txt","old_string":"bbb","new_string":"yyy"}`)
 	data, _ = os.ReadFile(path)
 	if string(data) != "xxx yyy xxx\n" {
 		t.Errorf("data = %q", data)
 	}
 
-	if _, err := run(t, editTool(dir, nil), `{"file_path":"c.txt","old_string":"zzz","new_string":"q"}`); err == nil {
+	if _, err := run(t, editTool(dir, nil, nil), `{"file_path":"c.txt","old_string":"zzz","new_string":"q"}`); err == nil {
 		t.Error("expected error for old_string not found")
 	}
-	if _, err := run(t, editTool(dir, nil), `{"file_path":"c.txt","old_string":"same","new_string":"same"}`); err == nil {
+	if _, err := run(t, editTool(dir, nil, nil), `{"file_path":"c.txt","old_string":"same","new_string":"same"}`); err == nil {
 		t.Error("expected error for identical strings")
 	}
 }

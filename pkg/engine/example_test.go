@@ -18,7 +18,7 @@ import (
 func Example() {
 	dir, _ := os.Getwd()
 
-	reg := tool.NewRegistry(builtin.All(dir, nil)...)
+	reg := tool.NewRegistry(builtin.All(dir, nil, nil)...)
 	a := &engine.Agent{
 		Provider:  anthropic.New(os.Getenv("ANTHROPIC_API_KEY"), ""),
 		Model:     "claude-sonnet-5",

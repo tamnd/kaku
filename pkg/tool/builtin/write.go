@@ -11,7 +11,7 @@ import (
 	"github.com/tamnd/kaku/pkg/tool"
 )
 
-func writeTool(workdir string, fmtr *Formatter) tool.Tool {
+func writeTool(workdir string, fmtr *Formatter, diag Diagnoser) tool.Tool {
 	return tool.Func{
 		ToolName: "write",
 		Desc:     "Write content to a file, creating parent directories as needed and overwriting any existing file. For small changes to an existing file prefer the edit tool.",
@@ -42,7 +42,8 @@ func writeTool(workdir string, fmtr *Formatter) tool.Tool {
 				return "", fmt.Errorf("write: %w", err)
 			}
 			fmtr.Format(path)
-			return fmt.Sprintf("wrote %d bytes to %s", len(in.Content), path), nil
+			result := fmt.Sprintf("wrote %d bytes to %s", len(in.Content), path)
+			return withDiagnostics(ctx, diag, path, result), nil
 		},
 	}
 }
