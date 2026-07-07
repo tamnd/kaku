@@ -16,6 +16,7 @@ Run `kaku <command> --help` for the canonical, up-to-date list.
 |---|---|
 | `kaku` | Interactive TUI in the current project. |
 | `kaku [prompt]` or `kaku -p "..."` | Headless run: stream the answer to stdout, tool activity to stderr, exit non-zero on failure. Piped stdin joins the prompt. |
+| `kaku init` | Scan the repo and write a starter `KAKU.md`: detected toolchain, build and test commands, layout, and a conventions placeholder. Later runs load `KAKU.md` as project instructions. |
 | `kaku sessions` | List this project's sessions. Subcommands: `rename <id> <title>`, `delete <id>` (`--force` skips the prompt), `export <id>` (`--format md\|html\|json`, `-o file`). |
 | `kaku models` | List every model kaku can resolve, the default first, then each named provider's models. |
 | `kaku rewind [checkpoint]` | Restore the working tree to a checkpoint; `--list` shows them. |
@@ -79,14 +80,21 @@ kaku -p --json "list the go files" | jq -c 'select(.type=="result") | .text'
 | `/model [name]` | Switch the model. With no name it opens a picker over the models in your config; move with the arrow keys, `enter` selects, `esc` cancels. A name that does not resolve fails in a dialog instead of poisoning the next request. |
 | `/compact` | Summarize old turns now instead of waiting for the budget. |
 | `/skills` | List available skills. |
+| `/init` | Scan the repo and write a starter `KAKU.md` (toolchain, build and test commands, layout, a conventions placeholder). Same as `kaku init` on the CLI. |
 | `/theme [name]` | Switch the color theme, or list the choices. Builtins are `dark` and `light`; custom themes load from `~/.kaku/themes/*.json` and `.kaku/themes/*.json`. |
 | `/new` | Close the current session and start a fresh one. |
+| `/sessions` | Open a picker over this project's saved sessions: `enter` switches, `d` deletes, `esc` closes. |
 | `/name <title>` | Rename the current session. |
 | `/export [file]` | Write the session to a file; the extension picks the format (`.md`, `.html`, `.json`), defaulting to `<id>.md`. |
+| `/thinking [level]` | Show or set the reasoning level live (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`); `shift+tab` cycles it. |
 | `/clear` | Reset the in-memory conversation; the transcript file keeps its history. |
 | `/help` | Open the command help dialog. |
 | `/quit` | Exit. |
 | `/<skill> [args]` | Run a skill from `.kaku/skills/` or `~/.kaku/skills/`. |
+
+A line starting with `!` runs the rest under the shell in the working directory and
+shows the output; a single `!` also feeds that output to your next prompt as context,
+while `!!` runs quietly and feeds nothing. `ctrl+n` cycles the configured models.
 
 Dialogs (help, the model picker, errors, and permission prompts) open centered over
 the transcript. A read-and-dismiss dialog closes on `esc` or `enter`; the picker

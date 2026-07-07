@@ -4,7 +4,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -59,6 +61,13 @@ type Runtime struct {
 	NewSession func() (*session.Session, error)
 	Rename     func(title string) error
 	Export     func(arg string) (string, error)
+
+	// Session picker hooks for /sessions, each nil when unavailable. Sessions
+	// lists what to choose from, SwitchSession adopts a chosen one and returns
+	// it, and DeleteSession removes one.
+	Sessions      func() ([]session.Meta, error)
+	SwitchSession func(id string) (*session.Session, error)
+	DeleteSession func(id string) error
 }
 
 // Options configures Run.
@@ -134,6 +143,9 @@ type model struct {
 	themeName string
 	st        styles
 	reasoning string
+
+	// pendingCtx holds !cmd shell output to prepend to the next prompt.
+	pendingCtx []string
 }
 
 func newModel(ctx context.Context, rt Runtime) *model {
@@ -203,10 +215,21 @@ func (m *model) submit(raw string) tea.Cmd {
 	if m.rt.Expand != nil {
 		input = m.rt.Expand(raw)
 	}
-	m.entries = append(m.entries, entry{kind: "user", text: raw})
+	if len(m.pendingCtx) > 0 {
+		input = strings.Join(m.pendingCtx, "\n\n") + "\n\n" + input
+		m.pendingCtx = nil
+	}
+	return m.runInput(raw, input)
+}
+
+// runInput shows display in the transcript and sends input to the agent. The
+// two differ when a command (like /init) or shell context stands in for what
+// the model actually receives.
+func (m *model) runInput(display, input string) tea.Cmd {
+	m.entries = append(m.entries, entry{kind: "user", text: display})
 	m.state = stateRunning
 	if len(m.rt.Agent.Messages) == 0 && m.rt.Session != nil {
-		m.rt.Session.SetTitle(raw)
+		m.rt.Session.SetTitle(display)
 	}
 
 	ctx, cancel := context.WithCancel(m.rootCtx)
@@ -285,6 +308,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.ta.Reset()
+				if strings.HasPrefix(raw, "!") {
+					m.runShell(raw)
+					m.refresh()
+					return m, nil
+				}
 				if cmd, handled := m.slash(raw); handled {
 					m.refresh()
 					return m, cmd
@@ -390,6 +418,11 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 		return nil, true
 	case "new":
 		m.newSession()
+		return nil, true
+	case "init":
+		return m.runInput("/init", engine.InitPrompt), true
+	case "sessions":
+		m.openSessionPicker()
 		return nil, true
 	case "theme":
 		m.setTheme(rest)
@@ -574,6 +607,138 @@ func (m *model) newSession() {
 	}
 	m.rt.Session = s
 	m.entries = []entry{{kind: "info", text: "new session " + s.ID()}}
+}
+
+// runShell handles a !cmd line: it runs the rest under the shell in the
+// workdir and shows the output. A single ! also feeds the output to the next
+// prompt as context; a leading !! runs quietly and feeds nothing.
+func (m *model) runShell(raw string) {
+	body := strings.TrimPrefix(raw, "!")
+	quiet := strings.HasPrefix(body, "!")
+	body = strings.TrimSpace(strings.TrimPrefix(body, "!"))
+	if body == "" {
+		m.entries = append(m.entries, entry{kind: "info", text: "usage: !command (or !!command to run without feeding the output back)"})
+		return
+	}
+	out := m.shell(body)
+	text := "$ " + body
+	if out != "" {
+		text += "\n" + out
+	}
+	m.entries = append(m.entries, entry{kind: "info", text: text})
+	if !quiet {
+		m.pendingCtx = append(m.pendingCtx, text)
+	}
+}
+
+// shell runs one command line under bash with a timeout and returns its
+// combined output, appending the error when the command fails.
+func (m *model) shell(cmdline string) string {
+	ctx, cancel := context.WithTimeout(m.rootCtx, 30*time.Second)
+	defer cancel()
+	c := exec.CommandContext(ctx, "bash", "-lc", cmdline)
+	c.Dir = m.rt.Dir
+	out, err := c.CombinedOutput()
+	s := strings.TrimRight(string(out), "\n")
+	if err != nil {
+		if s != "" {
+			s += "\n"
+		}
+		s += err.Error()
+	}
+	return s
+}
+
+// openSessionPicker lists the saved sessions in a picker: enter switches, d
+// deletes, esc closes.
+func (m *model) openSessionPicker() {
+	if m.rt.Sessions == nil {
+		m.entries = append(m.entries, entry{kind: "info", text: "sessions are not available"})
+		return
+	}
+	metas, err := m.rt.Sessions()
+	if err != nil {
+		m.showError("Could not list sessions", err.Error())
+		return
+	}
+	if len(metas) == 0 {
+		m.entries = append(m.entries, entry{kind: "info", text: "no sessions yet"})
+		return
+	}
+	m.dialog = m.sessionDialog(metas)
+}
+
+// sessionDialog builds the picker state from session metadata, marking the
+// active session and starting the cursor on it.
+func (m *model) sessionDialog(metas []session.Meta) *dialogState {
+	cur := ""
+	if m.rt.Session != nil {
+		cur = m.rt.Session.ID()
+	}
+	items := make([]dialogItem, 0, len(metas))
+	cursor := 0
+	for i, meta := range metas {
+		title := meta.Title
+		if title == "" {
+			title = "(untitled)"
+		}
+		desc := fmt.Sprintf("%d msgs · %s", meta.Messages, meta.CreatedAt.Format("Jan 2 15:04"))
+		if meta.ID == cur {
+			desc += " · current"
+			cursor = i
+		}
+		items = append(items, dialogItem{label: title, desc: desc, value: meta.ID})
+	}
+	return &dialogState{kind: dlgSessions, title: "Sessions", items: items, cursor: cursor, onPick: m.switchToSession}
+}
+
+// switchToSession adopts the chosen session and resets the transcript view.
+func (m *model) switchToSession(id string) tea.Cmd {
+	if m.rt.SwitchSession == nil {
+		return nil
+	}
+	if m.rt.Session != nil && m.rt.Session.ID() == id {
+		m.entries = append(m.entries, entry{kind: "info", text: "already on that session"})
+		return nil
+	}
+	s, err := m.rt.SwitchSession(id)
+	if err != nil {
+		m.showError("Could not switch session", err.Error())
+		return nil
+	}
+	m.rt.Session = s
+	m.entries = []entry{{kind: "info",
+		text: fmt.Sprintf("switched to session %s (%d messages)", s.ID(), len(m.rt.Agent.Messages))}}
+	return nil
+}
+
+// deleteFromPicker removes the highlighted session and rebuilds the picker. It
+// refuses to delete the active session, which would orphan the live view.
+func (m *model) deleteFromPicker() tea.Cmd {
+	d := m.dialog
+	if d == nil || len(d.items) == 0 {
+		return nil
+	}
+	id := d.items[d.cursor].value
+	if m.rt.Session != nil && m.rt.Session.ID() == id {
+		m.entries = append(m.entries, entry{kind: "info", text: "cannot delete the active session; /new first"})
+		return nil
+	}
+	if m.rt.DeleteSession != nil {
+		if err := m.rt.DeleteSession(id); err != nil {
+			m.showError("Could not delete session", err.Error())
+			return nil
+		}
+	}
+	metas, err := m.rt.Sessions()
+	if err != nil || len(metas) == 0 {
+		m.dialog = nil
+		return nil
+	}
+	nd := m.sessionDialog(metas)
+	nd.cursor = min(d.cursor, len(nd.items)-1)
+	m.dialog = nd
+	return nil
 }
 
 // startCompact summarizes the history off the UI goroutine.

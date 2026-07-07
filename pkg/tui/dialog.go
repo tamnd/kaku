@@ -20,9 +20,10 @@ type ModelChoice struct {
 
 // Dialog kinds. A picker is a selectable list; the rest are read-and-dismiss.
 const (
-	dlgError  = "error"
-	dlgHelp   = "help"
-	dlgPicker = "picker"
+	dlgError    = "error"
+	dlgHelp     = "help"
+	dlgPicker   = "picker"
+	dlgSessions = "sessions"
 )
 
 // dialogItem is one row of a picker.
@@ -74,6 +75,27 @@ func (m *model) dialogKey(msg tea.KeyMsg) tea.Cmd {
 		case "esc", "ctrl+c", "q":
 			m.dialog = nil
 		}
+	case dlgSessions:
+		switch msg.String() {
+		case "up", "k", "ctrl+p":
+			if d.cursor > 0 {
+				d.cursor--
+			}
+		case "down", "j", "ctrl+n":
+			if d.cursor < len(d.items)-1 {
+				d.cursor++
+			}
+		case "enter":
+			it := d.items[d.cursor]
+			m.dialog = nil
+			if d.onPick != nil {
+				return d.onPick(it.value)
+			}
+		case "d":
+			return m.deleteFromPicker()
+		case "esc", "ctrl+c", "q":
+			m.dialog = nil
+		}
 	default: // error, help
 		switch msg.String() {
 		case "esc", "enter", "q", "ctrl+c":
@@ -93,7 +115,7 @@ func (m *model) renderDialog() string {
 	b.WriteString("\n\n")
 
 	switch d.kind {
-	case dlgPicker:
+	case dlgPicker, dlgSessions:
 		for i, it := range d.items {
 			label := it.label
 			if it.desc != "" {
@@ -110,7 +132,11 @@ func (m *model) renderDialog() string {
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
-		b.WriteString(m.st.dialogHint.Render("↑/↓ move · enter select · esc cancel"))
+		hint := "↑/↓ move · enter select · esc cancel"
+		if d.kind == dlgSessions {
+			hint = "↑/↓ move · enter switch · d delete · esc cancel"
+		}
+		b.WriteString(m.st.dialogHint.Render(hint))
 	default:
 		b.WriteString(d.body)
 		b.WriteString("\n\n")
@@ -188,7 +214,9 @@ const helpBody = `/help              show this help
 /model [name]      switch model, or open the picker with no name
 /skills            list available skills
 /compact           summarize history to save tokens
+/init              scan the repo and write a starter KAKU.md
 /new               start a fresh session
+/sessions          switch between saved sessions
 /name <title>      rename the current session
 /theme [name]      switch the color theme, or list the choices
 /thinking [level]  show or set the reasoning level
@@ -196,6 +224,7 @@ const helpBody = `/help              show this help
 /clear             clear the conversation (the transcript file is kept)
 /quit              exit kaku
 
+!cmd runs a shell command and feeds the output back · !!cmd runs it quietly
 enter send · esc interrupt · ctrl+n cycle model · shift+tab cycle thinking
 y/a/n answer permission prompts`
 
