@@ -96,6 +96,11 @@ A line starting with `!` runs the rest under the shell in the working directory 
 shows the output; a single `!` also feeds that output to your next prompt as context,
 while `!!` runs quietly and feeds nothing. `ctrl+n` cycles the configured models.
 
+Type `@` in the composer to open a fuzzy file picker over the repo (it skips `.git`,
+`node_modules`, `vendor`, and `dist`): keep typing to filter, arrow keys to move,
+`enter` or `tab` to insert the path, `esc` to close. On send, each `@path` inlines the
+file's contents, so `explain @main.go` reaches the model with the file attached.
+
 Dialogs (help, the model picker, errors, and permission prompts) open centered over
 the transcript. A read-and-dismiss dialog closes on `esc` or `enter`; the picker
 takes the arrow keys.
