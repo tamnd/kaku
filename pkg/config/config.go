@@ -46,6 +46,10 @@ type Config struct {
 	MaxTurns   int    `json:"max_turns,omitempty"`
 	Theme      string `json:"theme,omitempty"` // TUI theme name (dark, light, or a custom one)
 
+	// ModelCycle is an ordered list of model refs that ctrl+n steps through in
+	// the TUI. Empty means cycle every resolvable model.
+	ModelCycle []string `json:"models,omitempty"`
+
 	Permissions  Permissions            `json:"permissions"`
 	MCPServers   map[string]MCPServer   `json:"mcpServers,omitempty"`
 	Providers    map[string]ProviderDef `json:"providers,omitempty"` // named custom providers
@@ -128,6 +132,9 @@ func merge(c, over *Config) {
 	}
 	if over.Theme != "" {
 		c.Theme = over.Theme
+	}
+	if len(over.ModelCycle) > 0 {
+		c.ModelCycle = over.ModelCycle
 	}
 	if over.Permissions.Mode != "" {
 		c.Permissions.Mode = over.Permissions.Mode

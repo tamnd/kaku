@@ -36,6 +36,13 @@ type Runtime struct {
 	Themes map[string]Theme
 	Theme  string
 
+	// ModelCycle is the ordered list of model refs ctrl+n steps through. Empty
+	// means cycle every entry in Models. Reasoning is the starting reasoning
+	// level and SetReasoning applies a new one live; nil disables /thinking.
+	ModelCycle   []string
+	Reasoning    string
+	SetReasoning func(level string) error
+
 	// Models is the list the /model picker offers. SwitchModel applies a
 	// choice, rebuilding the provider so a cross-provider switch works and a
 	// bad name fails loudly instead of poisoning the next request.
@@ -126,6 +133,7 @@ type model struct {
 	themes    map[string]Theme
 	themeName string
 	st        styles
+	reasoning string
 }
 
 func newModel(ctx context.Context, rt Runtime) *model {
@@ -141,7 +149,6 @@ func newModel(ctx context.Context, rt Runtime) *model {
 
 	ta := textarea.New()
 	ta.Placeholder = "ask kaku anything, /help for commands"
-	ta.Prompt = st.prompt.Render("> ")
 	ta.SetHeight(2)
 	ta.ShowLineNumbers = false
 	ta.Focus()
@@ -158,7 +165,9 @@ func newModel(ctx context.Context, rt Runtime) *model {
 		themes:    themes,
 		themeName: name,
 		st:        st,
+		reasoning: rt.Reasoning,
 	}
+	m.applyReasoningPrompt()
 
 	m.entries = append(m.entries, entry{kind: "info",
 		text: fmt.Sprintf("kaku · %s · %s mode · %s", rt.Model, rt.Mode, rt.Dir)})
@@ -262,6 +271,14 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
+			case "ctrl+n":
+				cmd := m.cycleModel(1)
+				m.refresh()
+				return m, cmd
+			case "shift+tab":
+				m.cycleReasoning()
+				m.refresh()
+				return m, nil
 			case "enter":
 				raw := strings.TrimSpace(m.ta.Value())
 				if raw == "" {
@@ -377,6 +394,9 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 	case "theme":
 		m.setTheme(rest)
 		return nil, true
+	case "thinking", "think":
+		m.setReasoning(rest)
+		return nil, true
 	case "name", "rename":
 		if rest == "" {
 			m.entries = append(m.entries, entry{kind: "info", text: "usage: /name <title>"})
@@ -450,6 +470,95 @@ func (m *model) themeList() string {
 		fmt.Fprintf(&b, "\n%s%s", mark, n)
 	}
 	return b.String()
+}
+
+// reasoningLevels is the cycle order for shift+tab and /thinking.
+var reasoningLevels = []string{"off", "minimal", "low", "medium", "high", "xhigh"}
+
+// applyReasoningPrompt tints the editor's left gutter by the reasoning level, a
+// cheap glance at how hard the model is set to think.
+func (m *model) applyReasoningPrompt() {
+	c := m.reasoningColor()
+	m.ta.Prompt = lipgloss.NewStyle().Foreground(c).Render("▎") + " "
+}
+
+// reasoningColor maps the current level to a theme color: muted when off,
+// warmer as the level climbs.
+func (m *model) reasoningColor() lipgloss.Color {
+	t := m.themes[m.themeName]
+	switch m.reasoning {
+	case "off", "":
+		return color(t.Muted)
+	case "minimal", "low":
+		return color(t.Secondary)
+	case "medium":
+		return color(t.Primary)
+	default: // high, xhigh
+		return color(t.Warning)
+	}
+}
+
+// cycleModel steps to the next (dir=1) or previous (dir=-1) model in the cycle
+// list, or the full model list when no cycle is configured.
+func (m *model) cycleModel(dir int) tea.Cmd {
+	cycle := m.rt.ModelCycle
+	if len(cycle) == 0 {
+		for _, mc := range m.rt.Models {
+			cycle = append(cycle, mc.Ref)
+		}
+	}
+	if len(cycle) == 0 {
+		m.entries = append(m.entries, entry{kind: "info", text: "no models to cycle"})
+		return nil
+	}
+	idx := -1
+	for i, ref := range cycle {
+		if ref == m.rt.Model || strings.HasSuffix(ref, "/"+m.rt.Model) {
+			idx = i
+			break
+		}
+	}
+	next := ((idx+dir)%len(cycle) + len(cycle)) % len(cycle)
+	return m.switchModel(cycle[next])
+}
+
+// cycleReasoning advances the reasoning level by one step.
+func (m *model) cycleReasoning() {
+	idx := 0
+	for i, l := range reasoningLevels {
+		if l == m.reasoning {
+			idx = i + 1
+			break
+		}
+	}
+	m.setReasoning(reasoningLevels[idx%len(reasoningLevels)])
+}
+
+// setReasoning applies a reasoning level live and retints the gutter.
+func (m *model) setReasoning(level string) {
+	if level == "" {
+		m.entries = append(m.entries, entry{kind: "info", text: "thinking: " + m.reasoningLabel()})
+		return
+	}
+	if m.rt.SetReasoning == nil {
+		m.entries = append(m.entries, entry{kind: "info", text: "changing reasoning is not available"})
+		return
+	}
+	if err := m.rt.SetReasoning(level); err != nil {
+		m.showError("Could not set reasoning", err.Error())
+		return
+	}
+	m.reasoning = level
+	m.applyReasoningPrompt()
+	m.entries = append(m.entries, entry{kind: "info", text: "thinking: " + level})
+}
+
+// reasoningLabel is the current level for display, "default" when unset.
+func (m *model) reasoningLabel() string {
+	if m.reasoning == "" {
+		return "default"
+	}
+	return m.reasoning
 }
 
 // newSession swaps in a fresh session and clears the transcript view.
@@ -570,7 +679,11 @@ func (m *model) View() string {
 	parts = append(parts, m.ta.View())
 
 	u := m.rt.Agent.Usage
-	status := fmt.Sprintf("%s · %s · %d in / %d out tokens", m.rt.Model, m.rt.Mode, u.InputTokens, u.OutputTokens)
+	think := ""
+	if m.reasoning != "" && m.reasoning != "off" {
+		think = " · think:" + m.reasoning
+	}
+	status := fmt.Sprintf("%s · %s%s · %d in / %d out tokens", m.rt.Model, m.rt.Mode, think, u.InputTokens, u.OutputTokens)
 	if m.state == stateRunning {
 		status = m.spin.View() + " working, esc interrupts · " + status
 	}
