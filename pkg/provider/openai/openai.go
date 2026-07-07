@@ -28,8 +28,13 @@ type Client struct {
 	apiKey  string
 	baseURL string
 	name    string
+	headers map[string]string
 	http    *http.Client
 }
+
+// SetHeaders adds extra HTTP headers sent on every request, for providers that
+// need a custom header. Fixed headers still win.
+func (c *Client) SetHeaders(h map[string]string) { c.headers = h }
 
 // New returns a client. An empty baseURL means the public OpenAI endpoint,
 // an empty name means "openai".
@@ -80,12 +85,13 @@ type apiMessage struct {
 }
 
 type apiRequest struct {
-	Model         string       `json:"model"`
-	Messages      []apiMessage `json:"messages"`
-	Tools         []apiTool    `json:"tools,omitempty"`
-	MaxTokens     int          `json:"max_tokens,omitempty"`
-	Stream        bool         `json:"stream"`
-	StreamOptions struct {
+	Model           string       `json:"model"`
+	Messages        []apiMessage `json:"messages"`
+	Tools           []apiTool    `json:"tools,omitempty"`
+	MaxTokens       int          `json:"max_tokens,omitempty"`
+	ReasoningEffort string       `json:"reasoning_effort,omitempty"`
+	Stream          bool         `json:"stream"`
+	StreamOptions   struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
 }
@@ -95,6 +101,9 @@ func buildRequest(req provider.Request) apiRequest {
 		Model:     req.Model,
 		MaxTokens: req.MaxTokens,
 		Stream:    true,
+	}
+	if req.Reasoning != "" && req.Reasoning != "off" {
+		out.ReasoningEffort = req.Reasoning
 	}
 	out.StreamOptions.IncludeUsage = true
 
@@ -185,6 +194,9 @@ func (c *Client) Complete(ctx context.Context, req provider.Request, on func(pro
 		hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", c.name, err)
+		}
+		for k, v := range c.headers {
+			hreq.Header.Set(k, v)
 		}
 		hreq.Header.Set("Content-Type", "application/json")
 		if c.apiKey != "" {

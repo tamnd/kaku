@@ -168,3 +168,18 @@ func TestRetryOn500(t *testing.T) {
 		t.Errorf("calls = %d, text = %q", calls, res.Message.TextContent())
 	}
 }
+
+func TestBuildRequestReasoning(t *testing.T) {
+	on := buildRequest(provider.Request{Model: "m", Reasoning: "medium"})
+	if on.Reasoning == nil || on.Reasoning.Effort != "medium" {
+		t.Fatalf("reasoning effort not set: %+v", on.Reasoning)
+	}
+	off := buildRequest(provider.Request{Model: "m", Reasoning: "off"})
+	if off.Reasoning != nil {
+		t.Fatalf("reasoning should be nil when off: %+v", off.Reasoning)
+	}
+	none := buildRequest(provider.Request{Model: "m"})
+	if none.Reasoning != nil {
+		t.Fatalf("reasoning should be nil by default: %+v", none.Reasoning)
+	}
+}
