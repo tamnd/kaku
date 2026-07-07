@@ -21,9 +21,13 @@ kaku --fork <id>        # copy one into a new session and continue from the copy
 kaku sessions rename <id> "release prep"
 kaku sessions delete <id>
 kaku sessions export <id> --format md   # or html, json; -o writes to a file
+kaku sessions tree      # show the fork lineage indented
+kaku sessions share <id># write a self-contained HTML copy and print its path
 ```
 
 Forking leaves the original byte-identical, so it is the safe way to try a different direction without losing the thread.
+A fork records the session it came from, so `kaku sessions tree` can show which sessions branched from which.
+`kaku sessions share` renders a session to a single HTML file with no external assets, ready to hand off or drop on a static host.
 In the TUI, `/new` starts a fresh session, `/name` renames the current one, and `/export` writes it out.
 
 Because a session is just a file, the usual tools work:
