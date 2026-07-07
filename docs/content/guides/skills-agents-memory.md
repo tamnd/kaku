@@ -46,6 +46,32 @@ kaku -p "/review $(git diff --name-only HEAD~1 | tr '\n' ' ')"
 
 `$ARGUMENTS` is replaced by whatever follows the command; a skill without it gets the arguments appended under an `Arguments:` label.
 
+### Interpolation
+
+A skill body can pull in more than the raw argument string:
+
+| Syntax | Expands to |
+|---|---|
+| `$ARGUMENTS`, `$@` | Every argument, verbatim. |
+| `$1`, `$2`, ... | The Nth positional argument. Quoting groups a phrase into one argument, so `"fix login" now` makes `$1` be `fix login`. |
+| `${1:-default}` | The Nth argument, or `default` when it is missing or empty. |
+| `` !`command` `` | The command runs in a shell rooted at the project and its output is substituted in place. It times out after 30 seconds and its output is capped. |
+| `@path` | The file's contents, inlined in a `<file path="...">` block. |
+
+```markdown
+<!-- .kaku/skills/fixup.md -->
+---
+description: Draft a fix for an issue on the current branch
+---
+We are on branch !`git branch --show-current`.
+The failing test output:
+@testresults.txt
+
+Fix the ${1:-first} problem you see.
+```
+
+`@path` mentions also work in a plain prompt, no skill required: `kaku -p "explain @main.go"` inlines the file before the model sees it. Paths resolve relative to the project root (or absolute, or `~`-rooted); a mention that does not point at a readable file is left as written, so an email address survives. Each file is capped at 100KB and the whole prompt at 256KB.
+
 ## Subagents: fan work out
 
 A subagent is a Markdown file in `.kaku/agents/` defining a specialist the main loop can delegate to through its `agent` tool:

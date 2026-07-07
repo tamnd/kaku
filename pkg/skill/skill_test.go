@@ -3,6 +3,7 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -140,15 +141,60 @@ func TestDiscoverMissingDirs(t *testing.T) {
 }
 
 func TestExpand(t *testing.T) {
+	dir := t.TempDir()
 	withVar := Skill{Body: "run $ARGUMENTS twice: $ARGUMENTS"}
-	if got := withVar.Expand("tests"); got != "run tests twice: tests" {
+	if got := withVar.Expand("tests", dir); got != "run tests twice: tests" {
 		t.Errorf("Expand = %q", got)
 	}
 	plain := Skill{Body: "just do it"}
-	if got := plain.Expand("now"); got != "just do it\n\nArguments: now" {
+	if got := plain.Expand("now", dir); got != "just do it\n\nArguments: now" {
 		t.Errorf("Expand append = %q", got)
 	}
-	if got := plain.Expand(""); got != "just do it" {
+	if got := plain.Expand("", dir); got != "just do it" {
 		t.Errorf("Expand empty args = %q", got)
+	}
+}
+
+func TestExpandPositional(t *testing.T) {
+	dir := t.TempDir()
+	s := Skill{Body: "first=$1 second=$2 rest=$@"}
+	if got := s.Expand("alpha beta gamma", dir); got != "first=alpha second=beta rest=alpha beta gamma" {
+		t.Errorf("Expand positional = %q", got)
+	}
+	// Quoted phrase stays one argument.
+	q := Skill{Body: "msg=$1"}
+	if got := q.Expand(`"hello world" extra`, dir); got != "msg=hello world" {
+		t.Errorf("Expand quoted = %q", got)
+	}
+}
+
+func TestExpandDefault(t *testing.T) {
+	dir := t.TempDir()
+	s := Skill{Body: "branch=${1:-main}"}
+	if got := s.Expand("", dir); got != "branch=main" {
+		t.Errorf("Expand default = %q", got)
+	}
+	if got := s.Expand("feature", dir); got != "branch=feature" {
+		t.Errorf("Expand override = %q", got)
+	}
+}
+
+func TestExpandShell(t *testing.T) {
+	dir := t.TempDir()
+	s := Skill{Body: "out=!`echo hi`"}
+	if got := s.Expand("", dir); got != "out=hi" {
+		t.Errorf("Expand shell = %q", got)
+	}
+}
+
+func TestExpandFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("body text"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := Skill{Body: "see @note.txt"}
+	got := s.Expand("", dir)
+	if !strings.Contains(got, `<file path="note.txt">`) || !strings.Contains(got, "body text") {
+		t.Errorf("Expand file = %q", got)
 	}
 }

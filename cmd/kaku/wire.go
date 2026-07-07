@@ -14,6 +14,7 @@ import (
 	"github.com/tamnd/kaku/pkg/hook"
 	"github.com/tamnd/kaku/pkg/mcp"
 	"github.com/tamnd/kaku/pkg/memory"
+	"github.com/tamnd/kaku/pkg/mention"
 	"github.com/tamnd/kaku/pkg/perm"
 	"github.com/tamnd/kaku/pkg/provider"
 	"github.com/tamnd/kaku/pkg/provider/anthropic"
@@ -218,14 +219,17 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	return rt, nil
 }
 
-// expandSkills rewrites a leading /name invocation using the loaded skills.
+// expandSkills rewrites a leading /name invocation using the loaded skills,
+// then inlines any @file mentions. A plain prompt with no leading slash still
+// gets its @file mentions expanded.
 func (r *runtime) expandSkills(input string) string {
-	if !strings.HasPrefix(input, "/") {
-		return input
+	if strings.HasPrefix(input, "/") {
+		name, args, _ := strings.Cut(strings.TrimPrefix(input, "/"), " ")
+		if s, ok := skill.Find(r.skills, name); ok {
+			// Skill.Expand already inlines @file mentions in the body.
+			return s.Expand(strings.TrimSpace(args), r.dir)
+		}
 	}
-	name, args, _ := strings.Cut(strings.TrimPrefix(input, "/"), " ")
-	if s, ok := skill.Find(r.skills, name); ok {
-		return s.Expand(strings.TrimSpace(args))
-	}
-	return input
+	out, _ := mention.Expand(r.dir, input)
+	return out
 }
