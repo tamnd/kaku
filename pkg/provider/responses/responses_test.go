@@ -211,3 +211,20 @@ func TestBuildRequestReasoning(t *testing.T) {
 		t.Fatalf("reasoning should be nil by default: %+v", none.Reasoning)
 	}
 }
+
+func TestBuildRequestOutputSchema(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"n":{"type":"integer"}}}`)
+	out := buildRequest(provider.Request{Model: "m", OutputSchema: schema})
+	if out.Text == nil {
+		t.Fatal("text.format should be set when a schema is given")
+	}
+	if out.Text.Format.Type != "json_schema" || !out.Text.Format.Strict {
+		t.Errorf("format = %+v", out.Text.Format)
+	}
+	if string(out.Text.Format.Schema) != string(schema) {
+		t.Errorf("schema = %s", out.Text.Format.Schema)
+	}
+	if buildRequest(provider.Request{Model: "m"}).Text != nil {
+		t.Error("text should be nil without a schema")
+	}
+}

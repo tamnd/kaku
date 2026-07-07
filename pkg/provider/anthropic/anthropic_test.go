@@ -243,6 +243,29 @@ func TestBuildRequestImageBlock(t *testing.T) {
 	}
 }
 
+func TestBuildRequestOutputSchema(t *testing.T) {
+	schema := `{"type":"object","properties":{"n":{"type":"integer"}}}`
+	out := buildRequest(provider.Request{
+		Model:        "m",
+		MaxTokens:    1000,
+		System:       "be terse",
+		OutputSchema: []byte(schema),
+	})
+	// The messages API has no format field, so the schema rides in the system
+	// prompt, appended after the existing instructions.
+	if !strings.Contains(out.System, "be terse") {
+		t.Errorf("existing system prompt should survive: %q", out.System)
+	}
+	if !strings.Contains(out.System, schema) {
+		t.Errorf("schema should be folded into the system prompt: %q", out.System)
+	}
+	// No schema leaves the system prompt untouched.
+	plain := buildRequest(provider.Request{Model: "m", MaxTokens: 1000, System: "be terse"})
+	if plain.System != "be terse" {
+		t.Errorf("system prompt should be unchanged without a schema: %q", plain.System)
+	}
+}
+
 func TestBuildRequestKeepsThinkingBlock(t *testing.T) {
 	req := provider.Request{
 		Model:     "m",

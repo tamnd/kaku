@@ -247,3 +247,24 @@ func TestBuildRequestSampling(t *testing.T) {
 		t.Fatalf("sampling knobs should be nil by default: %v %v", none.Temperature, none.TopP)
 	}
 }
+
+func TestBuildRequestOutputSchema(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"n":{"type":"integer"}}}`)
+	out := buildRequest(provider.Request{Model: "m", OutputSchema: schema})
+	if out.ResponseFormat == nil {
+		t.Fatal("response_format should be set when a schema is given")
+	}
+	if out.ResponseFormat.Type != "json_schema" {
+		t.Errorf("type = %q, want json_schema", out.ResponseFormat.Type)
+	}
+	if !out.ResponseFormat.JSONSchema.Strict {
+		t.Error("strict should be true")
+	}
+	if string(out.ResponseFormat.JSONSchema.Schema) != string(schema) {
+		t.Errorf("schema = %s", out.ResponseFormat.JSONSchema.Schema)
+	}
+	// No schema leaves the field off the wire, so the default path is unchanged.
+	if buildRequest(provider.Request{Model: "m"}).ResponseFormat != nil {
+		t.Error("response_format should be nil without a schema")
+	}
+}

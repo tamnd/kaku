@@ -126,6 +126,7 @@ func main() {
 	fl.StringVar(&o.sessionID, "session", "", "continue a specific session id")
 	fl.StringVar(&o.fork, "fork", "", "copy a session into a new one and continue from the copy")
 	fl.StringVar(&o.outputFormat, "output-format", "text", "headless output format: text or json")
+	fl.StringVar(&o.outputSchema, "output-schema", "", "constrain the answer to JSON matching this JSON Schema file")
 	fl.IntVar(&o.maxTurns, "max-turns", 0, "cap on model turns per run")
 	fl.BoolVar(&o.noMCP, "no-mcp", false, "skip connecting configured MCP servers")
 	fl.BoolVar(&o.sandbox, "sandbox", false, "confine bash writes to the working directory (Seatbelt on macOS, landlock on Linux)")
