@@ -4,6 +4,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -361,6 +362,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.refresh()
 				return m, nil
+			case "ctrl+g":
+				// Hand the draft to $EDITOR for a real editing buffer, then load
+				// whatever comes back into the composer.
+				return m, openEditor(m.ta.Value())
 			case "enter":
 				raw := strings.TrimSpace(m.ta.Value())
 				if raw == "" {
@@ -394,6 +399,26 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyEvent(engine.Event(msg))
 		m.refresh()
 		return m, m.waitEvent()
+
+	case editorDoneMsg:
+		if msg.path != "" {
+			defer os.Remove(msg.path)
+		}
+		if msg.err != nil {
+			m.entries = append(m.entries, entry{kind: "error", text: "editor: " + msg.err.Error()})
+			m.refresh()
+			return m, nil
+		}
+		data, err := os.ReadFile(msg.path)
+		if err != nil {
+			m.entries = append(m.entries, entry{kind: "error", text: "editor: " + err.Error()})
+			m.refresh()
+			return m, nil
+		}
+		m.ta.SetValue(strings.TrimRight(string(data), "\n"))
+		m.ta.CursorEnd()
+		m.refresh()
+		return m, nil
 
 	case askMsg:
 		ask := msg
