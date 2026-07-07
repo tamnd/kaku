@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -42,6 +43,7 @@ type options struct {
 	noSession      bool
 	title          string
 	outputFormat   string
+	outputSchema   string
 	maxTurns       int
 	noMCP          bool
 	sandbox        bool
@@ -231,6 +233,14 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		Messages:  rt.sess.Messages(),
 	}
 
+	if o.outputSchema != "" {
+		schema, err := loadOutputSchema(o.outputSchema)
+		if err != nil {
+			return nil, err
+		}
+		a.OutputSchema = schema
+	}
+
 	// Snapshot the tree before the first mutating tool call of each turn,
 	// when the directory is a git repository.
 	if cm, err := checkpoint.New(dir); err == nil {
@@ -364,6 +374,20 @@ func (r *runtime) startNewSession() (*session.Session, error) {
 	r.agent.Store = s
 	r.agent.Messages = nil
 	return s, nil
+}
+
+// loadOutputSchema reads a JSON Schema file for structured output and checks
+// that it parses as JSON, so a bad path or malformed schema fails at startup
+// rather than on the wire.
+func loadOutputSchema(path string) (json.RawMessage, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("output schema: %w", err)
+	}
+	if !json.Valid(data) {
+		return nil, fmt.Errorf("output schema %s: not valid JSON", path)
+	}
+	return json.RawMessage(data), nil
 }
 
 // listSessions returns the saved sessions for the /sessions picker.

@@ -97,17 +97,31 @@ type apiImageURL struct {
 }
 
 type apiRequest struct {
-	Model           string       `json:"model"`
-	Messages        []apiMessage `json:"messages"`
-	Tools           []apiTool    `json:"tools,omitempty"`
-	MaxTokens       int          `json:"max_tokens,omitempty"`
-	ReasoningEffort string       `json:"reasoning_effort,omitempty"`
-	Temperature     *float64     `json:"temperature,omitempty"`
-	TopP            *float64     `json:"top_p,omitempty"`
-	Stream          bool         `json:"stream"`
+	Model           string          `json:"model"`
+	Messages        []apiMessage    `json:"messages"`
+	Tools           []apiTool       `json:"tools,omitempty"`
+	MaxTokens       int             `json:"max_tokens,omitempty"`
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
+	Temperature     *float64        `json:"temperature,omitempty"`
+	TopP            *float64        `json:"top_p,omitempty"`
+	ResponseFormat  *responseFormat `json:"response_format,omitempty"`
+	Stream          bool            `json:"stream"`
 	StreamOptions   struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
+}
+
+// responseFormat carries a structured-output request. The chat completions API
+// takes a json_schema block with a name, the schema, and a strict flag.
+type responseFormat struct {
+	Type       string     `json:"type"`
+	JSONSchema jsonSchema `json:"json_schema"`
+}
+
+type jsonSchema struct {
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
 }
 
 // dataURL builds the "data:<mime>;base64,<data>" URL the chat API expects for
@@ -133,6 +147,12 @@ func buildRequest(req provider.Request) apiRequest {
 	}
 	if req.TopP != 0 {
 		out.TopP = &req.TopP
+	}
+	if len(req.OutputSchema) > 0 {
+		out.ResponseFormat = &responseFormat{
+			Type:       "json_schema",
+			JSONSchema: jsonSchema{Name: "output", Schema: req.OutputSchema, Strict: true},
+		}
 	}
 	out.StreamOptions.IncludeUsage = true
 

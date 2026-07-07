@@ -94,8 +94,22 @@ type apiRequest struct {
 	Reasoning       *apiReasoning `json:"reasoning,omitempty"`
 	Temperature     *float64      `json:"temperature,omitempty"`
 	TopP            *float64      `json:"top_p,omitempty"`
+	Text            *apiText      `json:"text,omitempty"`
 	Stream          bool          `json:"stream"`
 	Store           bool          `json:"store"`
+}
+
+// apiText carries the structured-output format for a Responses call. The format
+// nests the json_schema fields directly rather than under a json_schema key.
+type apiText struct {
+	Format textFormat `json:"format"`
+}
+
+type textFormat struct {
+	Type   string          `json:"type"`
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
+	Strict bool            `json:"strict"`
 }
 
 // dataURL builds the "data:<mime>;base64,<data>" URL an input_image expects.
@@ -125,6 +139,14 @@ func buildRequest(req provider.Request) apiRequest {
 		if req.TopP != 0 {
 			out.TopP = &req.TopP
 		}
+	}
+	if len(req.OutputSchema) > 0 {
+		out.Text = &apiText{Format: textFormat{
+			Type:   "json_schema",
+			Name:   "output",
+			Schema: req.OutputSchema,
+			Strict: true,
+		}}
 	}
 
 	for _, t := range req.Tools {

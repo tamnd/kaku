@@ -105,6 +105,12 @@ type Request struct {
 	Reasoning   string  // off|minimal|low|medium|high|xhigh; "" means provider default
 	Temperature float64 // sampling temperature; 0 means leave it to the provider
 	TopP        float64 // nucleus sampling; 0 means leave it to the provider
+
+	// OutputSchema constrains the final assistant text to a JSON object that
+	// matches this JSON Schema. Nil leaves the output unconstrained, which is
+	// the default. Providers that lack a native structured-output field fall
+	// back to a system instruction.
+	OutputSchema json.RawMessage
 }
 
 // Usage reports token counts for one completion.

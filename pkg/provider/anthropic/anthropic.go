@@ -127,6 +127,17 @@ func buildRequest(req provider.Request) apiRequest {
 		Stream:    true,
 		System:    req.System,
 	}
+	// The messages API has no response_format field, so ask for the schema in
+	// the system prompt. This is a best-effort constraint, not a hard one.
+	if len(req.OutputSchema) > 0 {
+		instr := "Respond with a single JSON object that matches this JSON Schema. " +
+			"Output only the JSON, with no prose or code fences.\n\n" + string(req.OutputSchema)
+		if out.System == "" {
+			out.System = instr
+		} else {
+			out.System += "\n\n" + instr
+		}
+	}
 	thinkOn := false
 	if budget := thinkingBudget(req.Reasoning); budget > 0 {
 		out.Thinking = &apiThinking{Type: "enabled", BudgetTokens: budget}

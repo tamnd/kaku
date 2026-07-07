@@ -46,6 +46,7 @@ These work on the root command and on `serve` and `mcp`:
 | `--title <str>` | Set the session title up front instead of deriving it from the first prompt. |
 | `--output-format <text\|json>` | Headless output format. `text` (default) is human lines; `json` emits one event object per line. |
 | `--json` | Shorthand for `--output-format json`. |
+| `--output-schema <path>` | Constrain the answer to a JSON object that matches the JSON Schema in this file. See [Structured output](#structured-output). |
 | `--max-turns` | Cap on model turns per run. |
 | `--no-mcp` | Skip connecting configured MCP servers. |
 | `--sandbox` | Confine bash writes to the working directory. |
@@ -74,6 +75,20 @@ A consumer that only wants the answer reads the last line:
 ```bash
 kaku -p --json "list the go files" | jq -c 'select(.type=="result") | .text'
 ```
+
+## Structured output
+
+`--output-schema <path>` points at a file holding a JSON Schema and constrains the final answer to a JSON object that matches it.
+This is the reliable way to get machine-parseable output out of a headless run: instead of parsing prose, you read one JSON object.
+
+```bash
+echo '{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"}}},"required":["files"],"additionalProperties":false}' > schema.json
+kaku -p --output-schema schema.json "list the go files in this directory"
+```
+
+OpenAI and Responses providers pass the schema to the native structured-output field with strict validation.
+Anthropic has no such field, so kaku folds the schema into the system prompt as a best-effort constraint.
+Pair it with `--json` when you want both the event stream and a schema-constrained `result`.
 
 ## TUI commands
 

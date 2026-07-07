@@ -62,9 +62,14 @@ type Agent struct {
 	Reasoning   string  // reasoning/thinking level passed to the provider
 	Temperature float64 // sampling temperature; 0 leaves it to the provider
 	TopP        float64 // nucleus sampling; 0 leaves it to the provider
-	System      string
-	Tools       *tool.Registry
-	Perm        *perm.Engine
+
+	// OutputSchema constrains the final assistant text to JSON matching this
+	// schema. Nil leaves the output unconstrained.
+	OutputSchema json.RawMessage
+
+	System string
+	Tools  *tool.Registry
+	Perm   *perm.Engine
 
 	// Ask resolves perm.Ask decisions. Nil means such calls are denied,
 	// which is what headless runs want.
@@ -170,14 +175,15 @@ func (a *Agent) RunWith(ctx context.Context, input string, images []provider.Blo
 		}
 
 		resp, err := a.Provider.Complete(ctx, provider.Request{
-			Model:       a.Model,
-			System:      a.System,
-			Messages:    a.Messages,
-			Tools:       a.Tools.Defs(),
-			MaxTokens:   a.MaxTokens,
-			Reasoning:   a.Reasoning,
-			Temperature: a.Temperature,
-			TopP:        a.TopP,
+			Model:        a.Model,
+			System:       a.System,
+			Messages:     a.Messages,
+			Tools:        a.Tools.Defs(),
+			MaxTokens:    a.MaxTokens,
+			Reasoning:    a.Reasoning,
+			Temperature:  a.Temperature,
+			TopP:         a.TopP,
+			OutputSchema: a.OutputSchema,
 		}, func(ev provider.Event) {
 			switch ev.Type {
 			case "text":
