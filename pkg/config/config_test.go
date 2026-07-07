@@ -78,6 +78,36 @@ func TestFormatterConfigUnmarshal(t *testing.T) {
 	}
 }
 
+func TestLSPConfigUnmarshal(t *testing.T) {
+	var on LSPConfig
+	if err := on.UnmarshalJSON([]byte("true")); err != nil {
+		t.Fatal(err)
+	}
+	if !on.Enabled || on.Specs != nil {
+		t.Errorf("true should enable with no specs: %+v", on)
+	}
+	var off LSPConfig
+	if err := off.UnmarshalJSON([]byte("false")); err != nil {
+		t.Fatal(err)
+	}
+	if off.Enabled {
+		t.Error("false should stay disabled")
+	}
+	var obj LSPConfig
+	if err := obj.UnmarshalJSON([]byte(`{"gopls":{"disabled":true},"zls":{"command":["zls"],"extensions":[".zig"],"language_id":"zig"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if !obj.Enabled {
+		t.Error("an object form should enable diagnostics")
+	}
+	if !obj.Specs["gopls"].Disabled {
+		t.Error("gopls should be marked disabled")
+	}
+	if got := obj.Specs["zls"]; got.LangID != "zig" || len(got.Command) != 1 {
+		t.Errorf("zls spec = %+v", got)
+	}
+}
+
 func TestLoadMissingFilesIsFine(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	c, err := Load(t.TempDir())
