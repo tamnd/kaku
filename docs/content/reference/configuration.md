@@ -39,7 +39,9 @@ Command-line flags override all three for that run.
     "pre_tool": [{"match": "bash", "command": "./scripts/check.sh"}]
   },
 
-  "instructions": ["CONTRIBUTING.md", "docs/conventions/*.md"]
+  "instructions": ["CONTRIBUTING.md", "docs/conventions/*.md"],
+
+  "tools": {"fetch": false, "mcp__*": true}
 }
 ```
 
@@ -58,6 +60,7 @@ Command-line flags override all three for that run.
 | `mcpServers.<name>.url` | Dial this MCP server over streamable HTTP. |
 | `hooks.<event>` | Commands to run on `pre_tool`, `post_tool`, `user_prompt`, or `stop`; `match` is a glob on the tool name, exit 2 blocks the action. |
 | `instructions` | Extra instruction-file globs, resolved relative to the project root, appended to the system prompt after `KAKU.md` and the memory files. |
+| `tools.<glob>` | Enable or disable tools by name glob. `false` removes the tool from the registry so the model never sees it; the `--tools`/`--exclude-tools` flags override this. |
 
 ## Rule syntax
 

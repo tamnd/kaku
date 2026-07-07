@@ -63,6 +63,13 @@ func (r *Registry) Add(t Tool) {
 	r.byName[t.Name()] = t
 }
 
+// Remove drops a tool by name. Removing a missing tool is a no-op.
+func (r *Registry) Remove(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.byName, name)
+}
+
 // Get looks a tool up by name.
 func (r *Registry) Get(name string) (Tool, bool) {
 	r.mu.RLock()

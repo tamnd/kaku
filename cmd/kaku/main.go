@@ -99,6 +99,10 @@ func main() {
 	fl.IntVar(&o.maxTurns, "max-turns", 0, "cap on model turns per run")
 	fl.BoolVar(&o.noMCP, "no-mcp", false, "skip connecting configured MCP servers")
 	fl.BoolVar(&o.sandbox, "sandbox", false, "confine bash writes to the working directory (Seatbelt on macOS, landlock on Linux)")
+	fl.StringVar(&o.tools, "tools", "", "allowlist of tools by name glob, comma separated (e.g. read,grep,glob,ls)")
+	fl.StringVar(&o.excludeTools, "exclude-tools", "", "denylist of tools by name glob, comma separated")
+	fl.BoolVar(&o.noTools, "no-tools", false, "run with no tools at all")
+	fl.BoolVar(&o.noBuiltinTools, "no-builtin-tools", false, "drop the builtin tools but keep MCP and the agent tool")
 
 	root.AddCommand(sessionsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), sandboxExecCmd())
 

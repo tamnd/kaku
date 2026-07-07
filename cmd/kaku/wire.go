@@ -26,17 +26,21 @@ import (
 )
 
 type options struct {
-	dir       string
-	model     string
-	provider  string
-	baseURL   string
-	apiKeyEnv string
-	mode      string
-	sessionID string
-	resume    bool
-	maxTurns  int
-	noMCP     bool
-	sandbox   bool
+	dir            string
+	model          string
+	provider       string
+	baseURL        string
+	apiKeyEnv      string
+	mode           string
+	sessionID      string
+	resume         bool
+	maxTurns       int
+	noMCP          bool
+	sandbox        bool
+	tools          string
+	excludeTools   string
+	noTools        bool
+	noBuiltinTools bool
 }
 
 type runtime struct {
@@ -123,7 +127,12 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		return nil, fmt.Errorf("unknown provider %q (want anthropic, openai, or responses)", cfg.Provider)
 	}
 
-	reg := tool.NewRegistry(builtin.All(dir)...)
+	base := builtin.All(dir)
+	reg := tool.NewRegistry(base...)
+	builtinNames := map[string]bool{}
+	for _, t := range base {
+		builtinNames[t.Name()] = true
+	}
 	if o.sandbox {
 		reg.Add(builtin.BashSandboxed(dir))
 	}
@@ -199,6 +208,10 @@ func build(ctx context.Context, o options) (*runtime, error) {
 		Tools:     reg,
 		Perm:      pe,
 	}))
+
+	// Gate tools last, so the allowlist and denylist can also reach the MCP
+	// and agent tools registered above.
+	gateTools(reg, builtinNames, cfg.Tools, o)
 
 	rt.skills, _ = skill.Discover(dir, "")
 	rt.agent = a
