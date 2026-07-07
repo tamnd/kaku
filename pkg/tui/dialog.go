@@ -194,6 +194,9 @@ const helpBody = `/help              show this help
 /model [name]      switch model, or open the picker with no name
 /skills            list available skills
 /compact           summarize history to save tokens
+/new               start a fresh session
+/name <title>      rename the current session
+/export [file]     write the session to md, html, or json
 /clear             clear the conversation (the transcript file is kept)
 /quit              exit kaku
 

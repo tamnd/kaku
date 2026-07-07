@@ -40,6 +40,13 @@ type Runtime struct {
 	// Compact summarizes history on demand for /compact. Nil disables
 	// the command.
 	Compact func(ctx context.Context, msgs []provider.Message) ([]provider.Message, bool, error)
+
+	// Session lifecycle hooks, each nil when the command is unavailable.
+	// NewSession starts a fresh session and returns it; Rename sets the current
+	// title; Export writes the current session and returns a note for the UI.
+	NewSession func() (*session.Session, error)
+	Rename     func(title string) error
+	Export     func(arg string) (string, error)
 }
 
 // Options configures Run.
@@ -351,6 +358,36 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 		m.rt.Agent.Messages = nil
 		m.entries = append(m.entries, entry{kind: "info", text: "conversation cleared (transcript file keeps the history)"})
 		return nil, true
+	case "new":
+		m.newSession()
+		return nil, true
+	case "name", "rename":
+		if rest == "" {
+			m.entries = append(m.entries, entry{kind: "info", text: "usage: /name <title>"})
+			return nil, true
+		}
+		if m.rt.Rename == nil {
+			m.entries = append(m.entries, entry{kind: "info", text: "renaming is not available"})
+			return nil, true
+		}
+		if err := m.rt.Rename(rest); err != nil {
+			m.showError("Could not rename", err.Error())
+			return nil, true
+		}
+		m.entries = append(m.entries, entry{kind: "info", text: "session named: " + rest})
+		return nil, true
+	case "export":
+		if m.rt.Export == nil {
+			m.entries = append(m.entries, entry{kind: "info", text: "export is not available"})
+			return nil, true
+		}
+		note, err := m.rt.Export(rest)
+		if err != nil {
+			m.showError("Could not export", err.Error())
+			return nil, true
+		}
+		m.entries = append(m.entries, entry{kind: "info", text: note})
+		return nil, true
 	case "skills":
 		if len(m.rt.Skills) == 0 {
 			m.entries = append(m.entries, entry{kind: "info", text: "no skills found (.kaku/skills/*.md)"})
@@ -365,6 +402,21 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 		return nil, true
 	}
 	return nil, false
+}
+
+// newSession swaps in a fresh session and clears the transcript view.
+func (m *model) newSession() {
+	if m.rt.NewSession == nil {
+		m.entries = append(m.entries, entry{kind: "info", text: "starting a new session is not available"})
+		return
+	}
+	s, err := m.rt.NewSession()
+	if err != nil {
+		m.showError("Could not start a new session", err.Error())
+		return
+	}
+	m.rt.Session = s
+	m.entries = []entry{{kind: "info", text: "new session " + s.ID()}}
 }
 
 // startCompact summarizes the history off the UI goroutine.

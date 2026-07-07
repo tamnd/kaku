@@ -119,6 +119,53 @@ func (st *Store) New() (*Session, error) {
 	return s, nil
 }
 
+// Fork seeds a brand-new session with src's messages and returns it. The new
+// session gets a fresh id and its own file; src is left byte-identical. The
+// title starts as "fork of <srcID>" so the copy is easy to spot in the list.
+func (st *Store) Fork(srcID string) (*Session, error) {
+	src, err := st.Open(srcID)
+	if err != nil {
+		return nil, err
+	}
+	msgs := src.Messages()
+	src.Close()
+
+	ns, err := st.New()
+	if err != nil {
+		return nil, err
+	}
+	if len(msgs) > 0 {
+		if err := ns.ReplaceMessages(msgs); err != nil {
+			ns.Close()
+			return nil, err
+		}
+	}
+	if err := ns.SetTitle("fork of " + srcID); err != nil {
+		ns.Close()
+		return nil, err
+	}
+	return ns, nil
+}
+
+// Rename records a new title on a stored session without opening it for a run.
+func (st *Store) Rename(id, title string) error {
+	s, err := st.Open(id)
+	if err != nil {
+		return err
+	}
+	defer s.Close()
+	return s.SetTitle(title)
+}
+
+// Delete removes a session file. A missing file is not an error.
+func (st *Store) Delete(id string) error {
+	err := os.Remove(filepath.Join(st.dir(), id+".jsonl"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 // Ephemeral returns a session that lives only in memory: it records messages
 // and usage for the run but never writes a file, so it leaves no trace on disk.
 // It is what --no-session builds.

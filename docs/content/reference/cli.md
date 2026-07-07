@@ -16,7 +16,7 @@ Run `kaku <command> --help` for the canonical, up-to-date list.
 |---|---|
 | `kaku` | Interactive TUI in the current project. |
 | `kaku [prompt]` or `kaku -p "..."` | Headless run: stream the answer to stdout, tool activity to stderr, exit non-zero on failure. Piped stdin joins the prompt. |
-| `kaku sessions` | List this project's sessions. |
+| `kaku sessions` | List this project's sessions. Subcommands: `rename <id> <title>`, `delete <id>` (`--force` skips the prompt), `export <id>` (`--format md\|html\|json`, `-o file`). |
 | `kaku models` | List every model kaku can resolve, the default first, then each named provider's models. |
 | `kaku rewind [checkpoint]` | Restore the working tree to a checkpoint; `--list` shows them. |
 | `kaku serve` | HTTP API over one conversation with SSE streaming; `--addr` sets the listen address (default `127.0.0.1:8377`). |
@@ -38,6 +38,7 @@ These work on the root command and on `serve` and `mcp`:
 | `--mode` | Permission mode: `plan`, `ask`, or `auto`. |
 | `-c, --continue` | Continue the newest session in this project. `--resume` is a kept alias. |
 | `--session <id>` | Continue a specific session. |
+| `--fork <id>` | Copy a session into a new one and continue from the copy. The original is left untouched. |
 | `--no-session` | Run without reading or writing a session file: nothing is persisted. |
 | `--title <str>` | Set the session title up front instead of deriving it from the first prompt. |
 | `--output-format <text\|json>` | Headless output format. `text` (default) is human lines; `json` emits one event object per line. |
@@ -78,7 +79,10 @@ kaku -p --json "list the go files" | jq -c 'select(.type=="result") | .text'
 | `/model [name]` | Switch the model. With no name it opens a picker over the models in your config; move with the arrow keys, `enter` selects, `esc` cancels. A name that does not resolve fails in a dialog instead of poisoning the next request. |
 | `/compact` | Summarize old turns now instead of waiting for the budget. |
 | `/skills` | List available skills. |
-| `/clear` | Start a fresh conversation. |
+| `/new` | Close the current session and start a fresh one. |
+| `/name <title>` | Rename the current session. |
+| `/export [file]` | Write the session to a file; the extension picks the format (`.md`, `.html`, `.json`), defaulting to `<id>.md`. |
+| `/clear` | Reset the in-memory conversation; the transcript file keeps its history. |
 | `/help` | Open the command help dialog. |
 | `/quit` | Exit. |
 | `/<skill> [args]` | Run a skill from `.kaku/skills/` or `~/.kaku/skills/`. |

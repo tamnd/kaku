@@ -36,6 +36,7 @@ type options struct {
 	hideThinking   bool
 	mode           string
 	sessionID      string
+	fork           string
 	resume         bool
 	noSession      bool
 	title          string
@@ -160,6 +161,8 @@ func build(ctx context.Context, o options) (*runtime, error) {
 	switch {
 	case o.noSession:
 		rt.sess = st.Ephemeral()
+	case o.fork != "":
+		rt.sess, err = st.Fork(o.fork)
 	case o.sessionID != "":
 		rt.sess, err = st.Open(o.sessionID)
 	case o.resume:
@@ -285,6 +288,55 @@ func (r *runtime) switchModel(o options) func(string) error {
 		r.agent.Reasoning = res.Reasoning
 		return nil
 	}
+}
+
+// startNewSession closes the current session and opens a fresh one, resetting
+// the agent's history. It returns the new session so the TUI can adopt it.
+func (r *runtime) startNewSession() (*session.Session, error) {
+	s, err := session.NewStore(r.dir).New()
+	if err != nil {
+		return nil, err
+	}
+	if r.sess != nil {
+		r.sess.Close()
+	}
+	r.sess = s
+	r.agent.Store = s
+	r.agent.Messages = nil
+	return s, nil
+}
+
+// renameSession sets the current session's title.
+func (r *runtime) renameSession(title string) error {
+	if r.sess == nil {
+		return fmt.Errorf("no session to rename")
+	}
+	return r.sess.SetTitle(title)
+}
+
+// exportSession writes the current session to a file. arg is the raw command
+// tail: an optional path whose extension picks the format (md, html, json),
+// defaulting to <id>.md in the working directory. It returns a note for the UI.
+func (r *runtime) exportSession(arg string) (string, error) {
+	if r.sess == nil || r.sess.ID() == "" {
+		return "", fmt.Errorf("no session to export")
+	}
+	file := strings.TrimSpace(arg)
+	format := "md"
+	if file == "" {
+		file = r.sess.ID() + ".md"
+	} else {
+		switch {
+		case strings.HasSuffix(file, ".json"):
+			format = "json"
+		case strings.HasSuffix(file, ".html"):
+			format = "html"
+		}
+	}
+	if err := session.NewStore(r.dir).Export(r.sess.ID(), format, file); err != nil {
+		return "", err
+	}
+	return "exported to " + file, nil
 }
 
 // expandSkills rewrites a leading /name invocation using the loaded skills,
