@@ -185,6 +185,35 @@ func TestExportJSONRoundTrip(t *testing.T) {
 	}
 }
 
+func TestShareWritesSelfContainedHTML(t *testing.T) {
+	st := testStore(t)
+	id := seed(t, st)
+	out := t.TempDir() + "/share.html"
+	path, err := st.Share(id, out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != out {
+		t.Errorf("share path = %q, want %q", path, out)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(data)
+	if !strings.Contains(page, "<!doctype html>") {
+		t.Error("share output is not an HTML page")
+	}
+	if strings.Contains(page, "http://") || strings.Contains(page, "https://") {
+		t.Error("share page pulls in an external asset")
+	}
+	for _, want := range []string{"original", "hello", "hi there"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("share page missing %q", want)
+		}
+	}
+}
+
 func TestExportUnknownFormat(t *testing.T) {
 	st := testStore(t)
 	id := seed(t, st)

@@ -252,7 +252,31 @@ func sessionsCmd(o *options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(sessionsRenameCmd(o), sessionsDeleteCmd(o), sessionsExportCmd(o), sessionsTreeCmd(o))
+	cmd.AddCommand(sessionsRenameCmd(o), sessionsDeleteCmd(o), sessionsExportCmd(o), sessionsTreeCmd(o), sessionsShareCmd(o))
+	return cmd
+}
+
+func sessionsShareCmd(o *options) *cobra.Command {
+	var out string
+	cmd := &cobra.Command{
+		Use:   "share <id>",
+		Short: "Write a self-contained HTML copy you can hand off",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, err := storeFor(o)
+			if err != nil {
+				return err
+			}
+			path, err := st.Share(args[0], out)
+			if err != nil {
+				return err
+			}
+			fmt.Println(path)
+			fmt.Println("file://" + path)
+			return nil
+		},
+	}
+	cmd.Flags().StringVarP(&out, "output", "o", "", "write to this file instead of ~/.kaku/shares/<id>.html")
 	return cmd
 }
 

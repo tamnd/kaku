@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/tamnd/kaku/pkg/provider"
@@ -42,6 +43,38 @@ func (st *Store) Export(id, format, out string) error {
 		return err
 	}
 	return os.WriteFile(out, []byte(body), 0o644)
+}
+
+// Share writes a self-contained HTML copy of session id to a file and returns
+// its absolute path. With out empty the file lands in ~/.kaku/shares/<id>.html,
+// a stable spot you can point a static host at; out overrides the path. The
+// page carries no external assets, so it reads the same wherever it is opened.
+func (st *Store) Share(id, out string) (string, error) {
+	s, err := st.Open(id)
+	if err != nil {
+		return "", err
+	}
+	defer s.Close()
+
+	if out == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		dir := filepath.Join(home, ".kaku", "shares")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", err
+		}
+		out = filepath.Join(dir, id+".html")
+	}
+	if err := os.WriteFile(out, []byte(renderHTML(s)), 0o644); err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(out)
+	if err != nil {
+		return out, nil
+	}
+	return abs, nil
 }
 
 // sessionTitle returns a display title, falling back to the id.
