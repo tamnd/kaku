@@ -4,13 +4,19 @@
 package skill
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/tamnd/kaku/pkg/mention"
 	"gopkg.in/yaml.v3"
 )
 
@@ -127,15 +133,128 @@ func Find(skills []Skill, name string) (Skill, bool) {
 	return Skill{}, false
 }
 
-// Expand renders the skill body with args: every "$ARGUMENTS" occurrence
-// is replaced; if the body has no $ARGUMENTS and args is non-empty, the
-// args are appended after an "Arguments:" label.
-func (s Skill) Expand(args string) string {
-	if strings.Contains(s.Body, "$ARGUMENTS") {
-		return strings.ReplaceAll(s.Body, "$ARGUMENTS", args)
+// Expand renders the skill body with args and interpolations, resolving files
+// and shell commands relative to dir:
+//
+//   - $ARGUMENTS and $@ expand to all args.
+//   - $1, $2, ... expand to positional args (quote-aware split).
+//   - ${1:-default} uses a default when the positional arg is missing.
+//   - !`command` runs the command and substitutes its output.
+//   - @path inlines a file's contents.
+//
+// When the body references none of the argument placeholders and args is
+// non-empty, the args are appended after an "Arguments:" label, preserving the
+// original behavior for simple skills.
+func (s Skill) Expand(args, dir string) string {
+	body := s.Body
+	positional := splitArgs(args)
+
+	if !referencesArgs(body) && args != "" {
+		body += "\n\nArguments: " + args
 	}
-	if args != "" {
-		return s.Body + "\n\nArguments: " + args
+	body = expandArgs(body, args, positional)
+	body = expandShell(body, dir)
+	body, _ = mention.Expand(dir, body)
+	return body
+}
+
+// referencesArgs reports whether the body uses any argument placeholder.
+func referencesArgs(body string) bool {
+	if strings.Contains(body, "$ARGUMENTS") || strings.Contains(body, "$@") {
+		return true
 	}
-	return s.Body
+	return argRef.MatchString(body)
+}
+
+var argRef = regexp.MustCompile(`\$\{?\d`)
+
+// expandArgs substitutes the argument placeholders.
+func expandArgs(body, all string, pos []string) string {
+	body = strings.ReplaceAll(body, "$ARGUMENTS", all)
+	body = strings.ReplaceAll(body, "$@", all)
+	// ${N:-default}
+	body = argDefault.ReplaceAllStringFunc(body, func(m string) string {
+		g := argDefault.FindStringSubmatch(m)
+		n, _ := strconv.Atoi(g[1])
+		if n >= 1 && n <= len(pos) && pos[n-1] != "" {
+			return pos[n-1]
+		}
+		return g[2]
+	})
+	// $N
+	body = argPlain.ReplaceAllStringFunc(body, func(m string) string {
+		n, _ := strconv.Atoi(m[1:])
+		if n >= 1 && n <= len(pos) {
+			return pos[n-1]
+		}
+		return ""
+	})
+	return body
+}
+
+var (
+	argDefault = regexp.MustCompile(`\$\{(\d+):-([^}]*)\}`)
+	argPlain   = regexp.MustCompile(`\$(\d+)`)
+	shellRef   = regexp.MustCompile("!`([^`]*)`")
+)
+
+const shellCap = 30000
+
+// expandShell runs each !`command` and substitutes its trimmed output. A
+// failing command substitutes its output plus a note rather than aborting.
+// Command bodies are user-authored, at the same trust level as a hook, and run
+// unsandboxed in dir.
+func expandShell(body, dir string) string {
+	return shellRef.ReplaceAllStringFunc(body, func(m string) string {
+		cmd := shellRef.FindStringSubmatch(m)[1]
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		c := exec.CommandContext(ctx, "bash", "-c", cmd)
+		c.Dir = dir
+		out, err := c.CombinedOutput()
+		text := strings.TrimRight(string(out), "\n")
+		if len(text) > shellCap {
+			text = text[:shellCap] + "\n... [output truncated] ..."
+		}
+		if err != nil {
+			return text + "\n[command failed: " + err.Error() + "]"
+		}
+		return text
+	})
+}
+
+// splitArgs splits an argument string on whitespace, honoring single and
+// double quotes so a quoted phrase stays one positional argument.
+func splitArgs(s string) []string {
+	var out []string
+	var cur strings.Builder
+	var quote rune
+	inWord := false
+	flush := func() {
+		if inWord {
+			out = append(out, cur.String())
+			cur.Reset()
+			inWord = false
+		}
+	}
+	for _, r := range s {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'' || r == '"':
+			quote = r
+			inWord = true
+		case r == ' ' || r == '\t' || r == '\n':
+			flush()
+		default:
+			cur.WriteRune(r)
+			inWord = true
+		}
+	}
+	flush()
+	return out
 }
