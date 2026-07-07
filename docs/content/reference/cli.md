@@ -23,6 +23,7 @@ Run `kaku <command> --help` for the canonical, up-to-date list.
 | `kaku rewind [checkpoint]` | Restore the working tree to a checkpoint; `--list` shows them. |
 | `kaku serve` | HTTP API over one conversation with SSE streaming; `--addr` sets the listen address (default `127.0.0.1:8377`). |
 | `kaku mcp` | Speak MCP on stdio, exposing the agent as a `kaku` tool. |
+| `kaku rpc` | Drive one conversation over a newline-delimited JSON protocol on stdin/stdout, the surface an editor embeds. See [RPC mode](#rpc-mode). |
 
 ## Shared flags
 
@@ -89,6 +90,48 @@ kaku -p --output-schema schema.json "list the go files in this directory"
 OpenAI and Responses providers pass the schema to the native structured-output field with strict validation.
 Anthropic has no such field, so kaku folds the schema into the system prompt as a best-effort constraint.
 Pair it with `--json` when you want both the event stream and a schema-constrained `result`.
+
+## RPC mode
+
+`kaku rpc` drives one long-lived conversation over a newline-delimited JSON protocol
+on stdin and stdout. It is the surface an editor or plugin embeds: unlike a headless
+run, it stays up across many prompts, keeps the conversation in memory, and round-trips
+permission prompts back to the caller instead of degrading them to a deny.
+
+Send one command object per line on stdin. Read one object per line on stdout. The
+first output line is always a `ready` line carrying the model, mode, and working
+directory. All the shared flags (`--model`, `--mode`, `-C`, and so on) configure the
+agent the same way they configure a headless run.
+
+Commands:
+
+| Command | Effect |
+|---|---|
+| `{"type":"prompt","id":1,"text":"..."}` | Run the agent on the text. Streams events, then a `response` echoing the id with the final `text` and `usage`. |
+| `{"type":"abort","id":2}` | Cancel the running prompt. |
+| `{"type":"new_session","id":3}` | Reset the conversation to a fresh session. |
+| `{"type":"get_messages","id":4}` | Return the full conversation as `messages`. |
+| `{"type":"set_model","id":5,"model":"x"}` | Switch the active model. |
+| `{"type":"get_state","id":6}` | Return the current `model`, `mode`, `cwd`, and message count. |
+| `{"type":"permission_response","id":7,"allow":true,"always":false}` | Answer a pending `permission_request` (the `id` matches the request). |
+
+While a prompt runs, the server emits the same event shapes as the headless JSON mode
+(`text`, `thinking`, `tool_start`, `tool_end`, `turn`, `info`). When a tool needs
+approval it emits a `permission_request` with its own `id` and blocks until you send a
+matching `permission_response`; an `abort` in the meantime denies it. A command that
+fails produces an `error` line carrying the command id.
+
+```
+{"type":"ready","model":"claude-sonnet-5","mode":"ask","cwd":"/work"}
+> {"type":"prompt","id":1,"text":"delete build/ then say done"}
+{"type":"permission_request","id":1,"tool":"bash","arg":"rm -rf build/"}
+> {"type":"permission_response","id":1,"allow":true}
+{"type":"tool_start","tool":"bash","input":{"command":"rm -rf build/"}}
+{"type":"tool_end","tool":"bash","output":""}
+{"type":"text","text":"done"}
+{"type":"turn","input_tokens":1400,"output_tokens":12}
+{"type":"response","id":1,"text":"done","usage":{"input_tokens":1400,"output_tokens":12}}
+```
 
 ## TUI commands
 

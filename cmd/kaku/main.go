@@ -19,6 +19,7 @@ import (
 	"github.com/tamnd/kaku/pkg/config"
 	"github.com/tamnd/kaku/pkg/engine"
 	"github.com/tamnd/kaku/pkg/mcp"
+	"github.com/tamnd/kaku/pkg/rpc"
 	"github.com/tamnd/kaku/pkg/serve"
 	"github.com/tamnd/kaku/pkg/session"
 	"github.com/tamnd/kaku/pkg/tool/builtin"
@@ -136,7 +137,7 @@ func main() {
 	fl.BoolVar(&o.noTools, "no-tools", false, "run with no tools at all")
 	fl.BoolVar(&o.noBuiltinTools, "no-builtin-tools", false, "drop the builtin tools but keep MCP and the agent tool")
 
-	root.AddCommand(initCmd(&o), sessionsCmd(&o), modelsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), authCmd(), sandboxExecCmd())
+	root.AddCommand(initCmd(&o), sessionsCmd(&o), modelsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), rpcCmd(&o), authCmd(), sandboxExecCmd())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -443,6 +444,37 @@ func mcpCmd(o *options) *cobra.Command {
 				},
 			}}
 			return mcp.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout(), version, tools)
+		},
+	}
+}
+
+func rpcCmd(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rpc",
+		Short: "Drive the agent over a JSON protocol on stdin/stdout",
+		Long: "rpc speaks newline-delimited JSON for editor integration: send command\n" +
+			"lines (prompt, abort, new_session, get_messages, set_model, get_state) and\n" +
+			"read event and response lines back. Permission prompts round-trip as\n" +
+			"permission_request/permission_response instead of degrading to deny.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rt, err := build(cmd.Context(), *o)
+			if err != nil {
+				return err
+			}
+			defer rt.close()
+			for name, err := range rt.mcpErrs {
+				fmt.Fprintf(os.Stderr, "mcp %s: %v\n", name, err)
+			}
+			srv := rpc.New(rpc.Options{
+				Agent:      rt.agent,
+				Expand:     rt.expandSkills,
+				NewSession: func() error { _, err := rt.startNewSession(); return err },
+				SetModel:   rt.setModel,
+				Mode:       rt.cfg.Permissions.Mode,
+				Dir:        rt.dir,
+			})
+			return srv.Serve(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 		},
 	}
 }
