@@ -41,14 +41,16 @@ type Config struct {
 	SmallModel string `json:"small_model,omitempty"` // summarizer and other cheap calls
 	BaseURL    string `json:"base_url,omitempty"`
 	APIKeyEnv  string `json:"api_key_env,omitempty"`
+	Reasoning  string `json:"reasoning,omitempty"` // global default reasoning level
 	MaxTokens  int    `json:"max_tokens,omitempty"`
 	MaxTurns   int    `json:"max_turns,omitempty"`
 
-	Permissions  Permissions          `json:"permissions"`
-	MCPServers   map[string]MCPServer `json:"mcpServers,omitempty"`
-	Hooks        map[string][]Hook    `json:"hooks,omitempty"`
-	Instructions []string             `json:"instructions,omitempty"` // extra instruction-file globs
-	Tools        map[string]bool      `json:"tools,omitempty"`        // enable/disable tools by name glob
+	Permissions  Permissions            `json:"permissions"`
+	MCPServers   map[string]MCPServer   `json:"mcpServers,omitempty"`
+	Providers    map[string]ProviderDef `json:"providers,omitempty"` // named custom providers
+	Hooks        map[string][]Hook      `json:"hooks,omitempty"`
+	Instructions []string               `json:"instructions,omitempty"` // extra instruction-file globs
+	Tools        map[string]bool        `json:"tools,omitempty"`        // enable/disable tools by name glob
 }
 
 // Default returns the built-in configuration.
@@ -114,6 +116,9 @@ func merge(c, over *Config) {
 	if over.APIKeyEnv != "" {
 		c.APIKeyEnv = over.APIKeyEnv
 	}
+	if over.Reasoning != "" {
+		c.Reasoning = over.Reasoning
+	}
 	if over.MaxTokens != 0 {
 		c.MaxTokens = over.MaxTokens
 	}
@@ -130,6 +135,12 @@ func merge(c, over *Config) {
 			c.MCPServers = map[string]MCPServer{}
 		}
 		maps.Copy(c.MCPServers, over.MCPServers)
+	}
+	if len(over.Providers) > 0 {
+		if c.Providers == nil {
+			c.Providers = map[string]ProviderDef{}
+		}
+		maps.Copy(c.Providers, over.Providers)
 	}
 	if len(over.Hooks) > 0 {
 		if c.Hooks == nil {
