@@ -7,12 +7,13 @@ import (
 	"github.com/tamnd/kaku/pkg/tool"
 )
 
-// All returns the builtin toolset rooted at workdir.
-func All(workdir string) []tool.Tool {
+// All returns the builtin toolset rooted at workdir. A non-nil formatter runs
+// after a successful write or edit to canonicalize the touched file.
+func All(workdir string, fmtr *Formatter) []tool.Tool {
 	return []tool.Tool{
 		readTool(workdir),
-		writeTool(workdir),
-		editTool(workdir),
+		writeTool(workdir, fmtr),
+		editTool(workdir, fmtr),
 		bashTool(workdir, false),
 		grepTool(workdir),
 		globTool(workdir),

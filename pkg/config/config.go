@@ -9,6 +9,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // MCPServer describes one MCP server to connect to. Command starts a stdio
@@ -56,6 +57,40 @@ type Config struct {
 	Hooks        map[string][]Hook      `json:"hooks,omitempty"`
 	Instructions []string               `json:"instructions,omitempty"` // extra instruction-file globs
 	Tools        map[string]bool        `json:"tools,omitempty"`        // enable/disable tools by name glob
+	Formatter    FormatterConfig        `json:"formatter"`              // post-write formatting
+}
+
+// FormatterConfig configures formatting after a write or edit. It accepts a
+// bare bool in JSON (true enables the builtin formatters, false or absent is
+// off) or an object mapping a formatter name to its overrides, which also
+// enables the builtins.
+type FormatterConfig struct {
+	Enabled bool
+	Specs   map[string]FormatterSpec
+}
+
+// FormatterSpec overrides a builtin formatter or registers a custom one.
+type FormatterSpec struct {
+	Disabled   bool     `json:"disabled,omitempty"`
+	Command    []string `json:"command,omitempty"`
+	Extensions []string `json:"extensions,omitempty"`
+}
+
+// UnmarshalJSON accepts either a bool or an object of name -> spec.
+func (f *FormatterConfig) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "true" || trimmed == "false" {
+		f.Enabled = trimmed == "true"
+		f.Specs = nil
+		return nil
+	}
+	var m map[string]FormatterSpec
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+	f.Enabled = true
+	f.Specs = m
+	return nil
 }
 
 // Default returns the built-in configuration.
@@ -167,6 +202,9 @@ func merge(c, over *Config) {
 			c.Tools = map[string]bool{}
 		}
 		maps.Copy(c.Tools, over.Tools)
+	}
+	if over.Formatter.Enabled || len(over.Formatter.Specs) > 0 {
+		c.Formatter = over.Formatter
 	}
 }
 

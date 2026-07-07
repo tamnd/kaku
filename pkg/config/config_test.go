@@ -46,6 +46,38 @@ func TestLoadMergesProjectOverUser(t *testing.T) {
 	}
 }
 
+func TestFormatterConfigUnmarshal(t *testing.T) {
+	// A bare bool toggles the builtins.
+	var on FormatterConfig
+	if err := on.UnmarshalJSON([]byte("true")); err != nil {
+		t.Fatal(err)
+	}
+	if !on.Enabled || on.Specs != nil {
+		t.Errorf("true should enable with no specs: %+v", on)
+	}
+	var off FormatterConfig
+	if err := off.UnmarshalJSON([]byte("false")); err != nil {
+		t.Fatal(err)
+	}
+	if off.Enabled {
+		t.Error("false should stay disabled")
+	}
+	// An object enables and carries per-name overrides.
+	var obj FormatterConfig
+	if err := obj.UnmarshalJSON([]byte(`{"gofmt":{"disabled":true},"deno":{"command":["deno","fmt","$FILE"],"extensions":[".md"]}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if !obj.Enabled {
+		t.Error("an object form should enable formatting")
+	}
+	if !obj.Specs["gofmt"].Disabled {
+		t.Error("gofmt should be marked disabled")
+	}
+	if got := obj.Specs["deno"].Command; len(got) != 3 || got[0] != "deno" {
+		t.Errorf("deno command = %v", got)
+	}
+}
+
 func TestLoadMissingFilesIsFine(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	c, err := Load(t.TempDir())
