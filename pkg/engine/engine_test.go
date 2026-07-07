@@ -345,3 +345,64 @@ func TestEventsStream(t *testing.T) {
 		}
 	}
 }
+
+func TestDegenerateReply(t *testing.T) {
+	cases := []struct {
+		text string
+		want bool
+	}{
+		{`{"name":"read","arguments":{"file_path":"cache.go"_}`, true},
+		{"```json\n{\"name\":\"edit\",\"arguments\":{\"path\":\"x\"}}\n```", true},
+		{`{"content":"User is working on a Go cache package."}`, true},
+		{"The fix is done, all tests pass.", false},
+		{`{"total": 7, "top": ["/api/users"]}`, false},
+		{"Use `{\"name\": ...}` in your config.", false},
+	}
+	for _, c := range cases {
+		if got := degenerateReply(c.text); got != c.want {
+			t.Errorf("degenerateReply(%q) = %v, want %v", c.text, got, c.want)
+		}
+	}
+}
+
+func TestRunNudgesSerializedToolCall(t *testing.T) {
+	fp := &fakeProvider{resps: []*provider.Response{
+		textResp(`{"name":"echo","arguments":{"x":1}}`),
+		textResp("done"),
+	}}
+	a := newAgent(fp, tool.NewRegistry(echoTool(true)), perm.ModeAsk)
+
+	out, err := a.Run(context.Background(), "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "done" {
+		t.Fatalf("out = %q", out)
+	}
+	// user, degenerate assistant, nudge user, assistant done
+	if len(a.Messages) != 4 {
+		t.Fatalf("messages = %d", len(a.Messages))
+	}
+	if a.Messages[2].Role != provider.RoleUser || a.Messages[2].TextContent() != nudgeMessage {
+		t.Fatalf("expected nudge message, got %+v", a.Messages[2])
+	}
+}
+
+func TestRunNudgeGivesUp(t *testing.T) {
+	junk := `{"content":"noise"}`
+	fp := &fakeProvider{resps: []*provider.Response{
+		textResp(junk), textResp(junk), textResp(junk),
+	}}
+	a := newAgent(fp, tool.NewRegistry(echoTool(true)), perm.ModeAsk)
+
+	out, err := a.Run(context.Background(), "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != junk {
+		t.Fatalf("out = %q, want the junk back after nudges run out", out)
+	}
+	if len(fp.reqs) != 3 {
+		t.Fatalf("requests = %d, want 3 (initial + 2 nudges)", len(fp.reqs))
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/tamnd/kaku/pkg/perm"
@@ -128,6 +129,7 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 		maxTurns = 80
 	}
 	snapped := false
+	nudged := 0
 	for turn := 0; turn < maxTurns; turn++ {
 		if a.Compact != nil {
 			msgs, changed, err := a.Compact(ctx, a.Messages)
@@ -178,8 +180,17 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 
 		uses := resp.Message.ToolUses()
 		if resp.StopReason != provider.StopToolUse || len(uses) == 0 {
-			a.hooks(ctx, "stop", "", map[string]any{"text": resp.Message.TextContent()})
-			return resp.Message.TextContent(), nil
+			text := resp.Message.TextContent()
+			if nudged < maxNudges && degenerateReply(text) {
+				nudged++
+				a.emit(Event{Type: "info", Text: "reply looked like a serialized tool call, asking for a real one"})
+				if err := a.append(provider.Text(provider.RoleUser, nudgeMessage)); err != nil {
+					return "", err
+				}
+				continue
+			}
+			a.hooks(ctx, "stop", "", map[string]any{"text": text})
+			return text, nil
 		}
 
 		results, err := a.runTools(ctx, input, uses, &snapped)
@@ -191,6 +202,39 @@ func (a *Agent) Run(ctx context.Context, input string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("gave up after %d turns", maxTurns)
+}
+
+// Some OpenAI-compatible backends emit the model's function calls as plain
+// text instead of tool-call items. Accepting one of those as the final answer
+// ends the run with the work not done, so Run re-prompts a bounded number of
+// times when a reply reads as a serialized tool call or stray metadata.
+const maxNudges = 2
+
+const nudgeMessage = "That reply was a serialized tool call, not an answer. Invoke tools through the tool-calling interface and keep going. If the task is already done, say so in plain text."
+
+// degenerateReply reports whether text reads as a serialized tool call or a
+// bare metadata object rather than an answer.
+func degenerateReply(text string) bool {
+	t := strings.TrimSpace(text)
+	if strings.HasPrefix(t, "```") {
+		if i := strings.IndexByte(t, '\n'); i >= 0 {
+			t = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(t[i+1:]), "```"))
+		}
+	}
+	if !strings.HasPrefix(t, "{") || len(t) > 8192 {
+		return false
+	}
+	// A name plus arguments pair is a tool call even when the JSON around it
+	// arrived mangled.
+	if strings.Contains(t, `"name"`) && strings.Contains(t, `"arguments"`) {
+		return true
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(t), &obj); err != nil {
+		return false
+	}
+	_, ok := obj["content"]
+	return len(obj) == 1 && ok
 }
 
 // maxParallelTools bounds how many tool calls run at once.
