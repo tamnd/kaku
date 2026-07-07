@@ -17,7 +17,7 @@ Run `kaku <command> --help` for the canonical, up-to-date list.
 | `kaku` | Interactive TUI in the current project. |
 | `kaku [prompt]` or `kaku -p "..."` | Headless run: stream the answer to stdout, tool activity to stderr, exit non-zero on failure. Piped stdin joins the prompt. |
 | `kaku init` | Scan the repo and write a starter `KAKU.md`: detected toolchain, build and test commands, layout, and a conventions placeholder. Later runs load `KAKU.md` as project instructions. |
-| `kaku sessions` | List this project's sessions. Subcommands: `rename <id> <title>`, `delete <id>` (`--force` skips the prompt), `export <id>` (`--format md\|html\|json`, `-o file`). |
+| `kaku sessions` | List this project's sessions. Subcommands: `rename <id> <title>`, `delete <id>` (`--force` skips the prompt), `export <id>` (`--format md\|html\|json`, `-o file`), `tree` (show the fork lineage indented). |
 | `kaku models` | List every model kaku can resolve, the default first, then each named provider's models. |
 | `kaku auth` | Manage stored provider API keys in `~/.kaku/auth.json` (0600). Subcommands: `login [provider]` (reads a key without echoing it), `list` (provider names only, never keys), `logout [provider]`. Provider defaults to `anthropic`. A stored key fills in when the provider's environment variable is unset. |
 | `kaku rewind [checkpoint]` | Restore the working tree to a checkpoint; `--list` shows them. |
@@ -42,7 +42,7 @@ These work on the root command and on `serve` and `mcp`:
 | `--dangerously-skip-permissions` | Allow every tool without prompting. A loud alias for `--mode auto`. |
 | `-c, --continue` | Continue the newest session in this project. `--resume` is a kept alias. |
 | `--session <id>` | Continue a specific session. |
-| `--fork <id>` | Copy a session into a new one and continue from the copy. The original is left untouched. |
+| `--fork <id>` | Copy a session into a new one and continue from the copy. The original is left untouched. The copy records the source as its parent, so `kaku sessions tree` shows the lineage. |
 | `--no-session` | Run without reading or writing a session file: nothing is persisted. |
 | `--title <str>` | Set the session title up front instead of deriving it from the first prompt. |
 | `--output-format <text\|json>` | Headless output format. `text` (default) is human lines; `json` emits one event object per line. |

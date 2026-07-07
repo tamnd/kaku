@@ -252,8 +252,40 @@ func sessionsCmd(o *options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(sessionsRenameCmd(o), sessionsDeleteCmd(o), sessionsExportCmd(o))
+	cmd.AddCommand(sessionsRenameCmd(o), sessionsDeleteCmd(o), sessionsExportCmd(o), sessionsTreeCmd(o))
 	return cmd
+}
+
+func sessionsTreeCmd(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "tree",
+		Short: "Show sessions as a fork tree",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, err := storeFor(o)
+			if err != nil {
+				return err
+			}
+			roots, err := st.Tree()
+			if err != nil {
+				return err
+			}
+			if len(roots) == 0 {
+				fmt.Println("no sessions yet")
+				return nil
+			}
+			var walk func(n *session.Node, prefix string)
+			walk = func(n *session.Node, prefix string) {
+				fmt.Println(prefix + n.Meta.String())
+				for _, c := range n.Children {
+					walk(c, prefix+"  ")
+				}
+			}
+			for _, r := range roots {
+				walk(r, "")
+			}
+			return nil
+		},
+	}
 }
 
 // storeFor resolves the session store for the working directory.

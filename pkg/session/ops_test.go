@@ -61,6 +61,64 @@ func TestFork(t *testing.T) {
 	}
 }
 
+func TestForkRecordsParent(t *testing.T) {
+	st := testStore(t)
+	src := seed(t, st)
+	f, err := st.Fork(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.Parent() != src {
+		t.Errorf("fork parent = %q, want %q", f.Parent(), src)
+	}
+	f.Close()
+
+	// The parent survives a reopen.
+	r, err := st.Open(f.ID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if r.Meta().Parent != src {
+		t.Errorf("reopened parent = %q, want %q", r.Meta().Parent, src)
+	}
+}
+
+func TestTreeLineage(t *testing.T) {
+	st := testStore(t)
+	root := seed(t, st)
+	child, err := st.Fork(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	childID := child.ID()
+	child.Close()
+	grand, err := st.Fork(childID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grandID := grand.ID()
+	grand.Close()
+
+	roots, err := st.Tree()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roots) != 1 {
+		t.Fatalf("roots = %d, want 1 (only %s has no parent)", len(roots), root)
+	}
+	if roots[0].ID != root {
+		t.Fatalf("root id = %q, want %q", roots[0].ID, root)
+	}
+	if len(roots[0].Children) != 1 || roots[0].Children[0].ID != childID {
+		t.Fatalf("root child = %+v, want %s", roots[0].Children, childID)
+	}
+	gc := roots[0].Children[0].Children
+	if len(gc) != 1 || gc[0].ID != grandID {
+		t.Fatalf("grandchild = %+v, want %s", gc, grandID)
+	}
+}
+
 func TestRename(t *testing.T) {
 	st := testStore(t)
 	id := seed(t, st)
