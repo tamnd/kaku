@@ -25,6 +25,14 @@ type ModelDef struct {
 	MaxTokens int    `json:"max_tokens,omitempty"`
 	Context   int    `json:"context,omitempty"`
 	Name      string `json:"name,omitempty"` // display only
+	Cost      *Cost  `json:"cost,omitempty"` // USD per million tokens, for the footer estimate
+}
+
+// Cost is a model's price in USD per million tokens, used to estimate a run's
+// spend in the TUI footer. Nil on a model means the footer shows tokens only.
+type Cost struct {
+	Input  float64 `json:"input"`
+	Output float64 `json:"output"`
 }
 
 // Resolved is the concrete set of settings for one model reference, with the
@@ -37,6 +45,7 @@ type Resolved struct {
 	Model     string
 	Reasoning string
 	MaxTokens int
+	Cost      *Cost
 }
 
 // Resolve turns a model reference into concrete provider settings. A reference
@@ -123,6 +132,7 @@ func (c *Config) resolveNamed(prov, model string) (Resolved, bool, error) {
 			Model:     model,
 			Reasoning: md.Reasoning,
 			MaxTokens: max,
+			Cost:      md.Cost,
 		}, true, nil
 	}
 	return Resolved{}, false, nil

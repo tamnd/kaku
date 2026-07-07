@@ -108,6 +108,11 @@ takes the arrow keys.
 At a permission prompt: `y` allows once, `a` allows that tool for the session, `n` denies.
 `esc` interrupts a running turn.
 
+The header prints a one-line summary of what the session loaded: the number of skills,
+subagents, MCP servers, and memory files. The footer shows the model, mode, thinking
+level, and token counts; when the active model has a configured `cost`, it also shows a
+running spend estimate.
+
 ## Builtin tools
 
 | Tool | Kind | What the model can do with it |

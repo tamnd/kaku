@@ -33,6 +33,12 @@ type Runtime struct {
 	Dir         string
 	MCPFailures map[string]error
 
+	// Summary is the one-line resource count shown under the header (skills,
+	// agents, MCP servers, memory files). Cost returns the active model's per-
+	// million token prices for the footer estimate; nil or ok=false hides it.
+	Summary string
+	Cost    func() (in, out float64, ok bool)
+
 	// Themes is the palette set /theme chooses from; Theme is the selected
 	// name. When Themes is empty the builtin dark theme is used.
 	Themes map[string]Theme
@@ -188,6 +194,9 @@ func newModel(ctx context.Context, rt Runtime) *model {
 
 	m.entries = append(m.entries, entry{kind: "info",
 		text: fmt.Sprintf("kaku · %s · %s mode · %s", rt.Model, rt.Mode, rt.Dir)})
+	if rt.Summary != "" {
+		m.entries = append(m.entries, entry{kind: "info", text: rt.Summary})
+	}
 	for name, err := range rt.MCPFailures {
 		m.entries = append(m.entries, entry{kind: "error", text: fmt.Sprintf("mcp %s: %v", name, err)})
 	}
@@ -953,12 +962,29 @@ func (m *model) View() string {
 		think = " · think:" + m.reasoning
 	}
 	status := fmt.Sprintf("%s · %s%s · %d in / %d out tokens", m.rt.Model, m.rt.Mode, think, u.InputTokens, u.OutputTokens)
+	if c := m.estimatedCost(u); c != "" {
+		status += " · " + c
+	}
 	if m.state == stateRunning {
 		status = m.spin.View() + " working, esc interrupts · " + status
 	}
 	parts = append(parts, m.st.foot.Render(status))
 
 	return strings.Join(parts, "\n")
+}
+
+// estimatedCost renders the accumulated spend from the active model's prices,
+// or "" when no cost is configured. Prices are USD per million tokens.
+func (m *model) estimatedCost(u provider.Usage) string {
+	if m.rt.Cost == nil {
+		return ""
+	}
+	in, out, ok := m.rt.Cost()
+	if !ok {
+		return ""
+	}
+	total := float64(u.InputTokens)/1e6*in + float64(u.OutputTokens)/1e6*out
+	return fmt.Sprintf("$%.4f", total)
 }
 
 func oneLine(s string, n int) string {
