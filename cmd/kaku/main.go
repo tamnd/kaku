@@ -86,6 +86,9 @@ func main() {
 					Models:      modelChoices(rt.cfg, rt.agent.Model),
 					SwitchModel: rt.switchModel(o),
 					Compact:     rt.compactor.Force,
+					NewSession:  rt.startNewSession,
+					Rename:      rt.renameSession,
+					Export:      rt.exportSession,
 				}, nil
 			}})
 		},
@@ -109,6 +112,7 @@ func main() {
 	fl.BoolVar(&o.noSession, "no-session", false, "run without reading or writing a session file")
 	fl.StringVar(&o.title, "title", "", "set the session title up front")
 	fl.StringVar(&o.sessionID, "session", "", "continue a specific session id")
+	fl.StringVar(&o.fork, "fork", "", "copy a session into a new one and continue from the copy")
 	fl.StringVar(&o.outputFormat, "output-format", "text", "headless output format: text or json")
 	fl.IntVar(&o.maxTurns, "max-turns", 0, "cap on model turns per run")
 	fl.BoolVar(&o.noMCP, "no-mcp", false, "skip connecting configured MCP servers")
@@ -211,18 +215,15 @@ func runPrintJSON(ctx context.Context, o options, rt *runtime, prompt string) er
 func dim(s string) string { return "\x1b[2m" + s + "\x1b[0m" }
 
 func sessionsCmd(o *options) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "sessions",
 		Short: "List this project's sessions",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir := o.dir
-			if dir == "" {
-				var err error
-				if dir, err = os.Getwd(); err != nil {
-					return err
-				}
+			st, err := storeFor(o)
+			if err != nil {
+				return err
 			}
-			metas, err := session.NewStore(dir).List()
+			metas, err := st.List()
 			if err != nil {
 				return err
 			}
@@ -236,6 +237,91 @@ func sessionsCmd(o *options) *cobra.Command {
 			return nil
 		},
 	}
+	cmd.AddCommand(sessionsRenameCmd(o), sessionsDeleteCmd(o), sessionsExportCmd(o))
+	return cmd
+}
+
+// storeFor resolves the session store for the working directory.
+func storeFor(o *options) (*session.Store, error) {
+	dir := o.dir
+	if dir == "" {
+		var err error
+		if dir, err = os.Getwd(); err != nil {
+			return nil, err
+		}
+	}
+	return session.NewStore(dir), nil
+}
+
+func sessionsRenameCmd(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "rename <id> <title>",
+		Short: "Set a session's title",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, err := storeFor(o)
+			if err != nil {
+				return err
+			}
+			title := strings.Join(args[1:], " ")
+			if err := st.Rename(args[0], title); err != nil {
+				return err
+			}
+			fmt.Printf("renamed %s to %q\n", args[0], title)
+			return nil
+		},
+	}
+}
+
+func sessionsDeleteCmd(o *options) *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:     "delete <id>",
+		Aliases: []string{"rm"},
+		Short:   "Delete a session file",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, err := storeFor(o)
+			if err != nil {
+				return err
+			}
+			if !force {
+				fmt.Fprintf(os.Stderr, "delete session %s? [y/N] ", args[0])
+				var reply string
+				fmt.Fscanln(cmd.InOrStdin(), &reply)
+				if !strings.EqualFold(strings.TrimSpace(reply), "y") {
+					fmt.Println("cancelled")
+					return nil
+				}
+			}
+			if err := st.Delete(args[0]); err != nil {
+				return err
+			}
+			fmt.Printf("deleted %s\n", args[0])
+			return nil
+		},
+	}
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "delete without confirmation")
+	return cmd
+}
+
+func sessionsExportCmd(o *options) *cobra.Command {
+	var format, out string
+	cmd := &cobra.Command{
+		Use:   "export <id>",
+		Short: "Render a session to markdown, html, or json",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st, err := storeFor(o)
+			if err != nil {
+				return err
+			}
+			return st.Export(args[0], format, out)
+		},
+	}
+	cmd.Flags().StringVar(&format, "format", "md", "output format: md, html, or json")
+	cmd.Flags().StringVarP(&out, "output", "o", "", "write to this file instead of stdout")
+	return cmd
 }
 
 func modelsCmd(o *options) *cobra.Command {

@@ -17,7 +17,14 @@ Kill the terminal mid-turn and nothing before that turn is lost.
 kaku sessions           # list this project's sessions, newest first
 kaku --resume           # continue the newest
 kaku --session <id>     # continue a specific one
+kaku --fork <id>        # copy one into a new session and continue from the copy
+kaku sessions rename <id> "release prep"
+kaku sessions delete <id>
+kaku sessions export <id> --format md   # or html, json; -o writes to a file
 ```
+
+Forking leaves the original byte-identical, so it is the safe way to try a different direction without losing the thread.
+In the TUI, `/new` starts a fresh session, `/name` renames the current one, and `/export` writes it out.
 
 Because a session is just a file, the usual tools work:
 
