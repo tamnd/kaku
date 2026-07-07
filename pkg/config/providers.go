@@ -89,6 +89,11 @@ func (c *Config) resolveDefault(model string) Resolved {
 		model = c.Model
 	}
 	key := c.APIKey()
+	if key == "" && c.AuthLookup != nil {
+		if k, ok := c.AuthLookup(c.Provider); ok {
+			key = k
+		}
+	}
 	return Resolved{
 		API:       c.Provider,
 		BaseURL:   c.BaseURL,
@@ -119,6 +124,11 @@ func (c *Config) resolveNamed(prov, model string) (Resolved, bool, error) {
 		key, err := expand(def.APIKey)
 		if err != nil {
 			return Resolved{}, false, fmt.Errorf("provider %q: %w", name, err)
+		}
+		if key == "" && c.AuthLookup != nil {
+			if k, ok := c.AuthLookup(name); ok {
+				key = k
+			}
 		}
 		max := md.MaxTokens
 		if max == 0 {

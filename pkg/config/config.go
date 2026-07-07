@@ -58,6 +58,11 @@ type Config struct {
 	Instructions []string               `json:"instructions,omitempty"` // extra instruction-file globs
 	Tools        map[string]bool        `json:"tools,omitempty"`        // enable/disable tools by name glob
 	Formatter    FormatterConfig        `json:"formatter"`              // post-write formatting
+
+	// AuthLookup, when set, supplies a stored API key for a provider name when
+	// no explicit key resolves from config or the environment. build wires it
+	// to the on-disk auth store. It is never serialized.
+	AuthLookup func(provider string) (string, bool) `json:"-"`
 }
 
 // FormatterConfig configures formatting after a write or edit. It accepts a

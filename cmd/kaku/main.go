@@ -134,7 +134,7 @@ func main() {
 	fl.BoolVar(&o.noTools, "no-tools", false, "run with no tools at all")
 	fl.BoolVar(&o.noBuiltinTools, "no-builtin-tools", false, "drop the builtin tools but keep MCP and the agent tool")
 
-	root.AddCommand(initCmd(&o), sessionsCmd(&o), modelsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), sandboxExecCmd())
+	root.AddCommand(initCmd(&o), sessionsCmd(&o), modelsCmd(&o), rewindCmd(&o), serveCmd(&o), mcpCmd(&o), authCmd(), sandboxExecCmd())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -54,6 +54,60 @@ func TestResolveDefault(t *testing.T) {
 	}
 }
 
+func TestResolveDefaultUsesAuthWhenEnvEmpty(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	c := Default()
+	c.AuthLookup = func(p string) (string, bool) {
+		if p == "anthropic" {
+			return "sk-stored", true
+		}
+		return "", false
+	}
+	r, err := c.Resolve("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.APIKey != "sk-stored" {
+		t.Fatalf("stored key should fill in for an empty env, got %q", r.APIKey)
+	}
+}
+
+func TestResolveEnvBeatsAuth(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-env")
+	c := Default()
+	c.AuthLookup = func(string) (string, bool) { return "sk-stored", true }
+	r, err := c.Resolve("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.APIKey != "sk-env" {
+		t.Fatalf("env var should win over the stored key, got %q", r.APIKey)
+	}
+}
+
+func TestResolveNamedUsesAuthWhenKeyEmpty(t *testing.T) {
+	c := Default()
+	c.Providers = map[string]ProviderDef{
+		"zen": {
+			API:    "openai",
+			Models: map[string]ModelDef{"big-pickle": {}},
+		},
+	}
+	c.AuthLookup = func(p string) (string, bool) {
+		if p == "zen" {
+			return "sk-zen-stored", true
+		}
+		return "", false
+	}
+	r, err := c.Resolve("zen/big-pickle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.APIKey != "sk-zen-stored" {
+		t.Fatalf("named provider should use the stored key, got %q", r.APIKey)
+	}
+}
+
 func TestResolveNamedQualified(t *testing.T) {
 	t.Setenv("OPENCODE_API_KEY", "sk-zen")
 	c := Default()
