@@ -384,19 +384,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		default: // idle
-			// The @file picker, when open, takes the navigation keys.
+			// The completion popup, when open, takes the navigation keys. It is
+			// drawn best-match-last, so "up" moves toward the top of the list.
 			if m.mention != nil {
 				switch msg.String() {
 				case "up", "ctrl+p":
-					if m.mention.cursor > 0 {
-						m.mention.cursor--
-					}
+					m.moveMention(-1)
 					m.refresh()
 					return m, nil
 				case "down", "ctrl+n":
-					if m.mention.cursor < len(m.mention.matches)-1 {
-						m.mention.cursor++
-					}
+					m.moveMention(1)
 					m.refresh()
 					return m, nil
 				case "enter", "tab":
@@ -914,9 +911,17 @@ func (m *model) deleteFromPicker() tea.Cmd {
 	return nil
 }
 
-// updateMention recomputes the @file overlay from the composer's tail token.
-// It opens the picker while an @token is being typed and closes it otherwise.
+// updateMention recomputes the completion overlay from the composer. It opens
+// the /command popup when the input is a single leading-slash word, otherwise
+// the @file popup while an @token is being typed, and closes when neither fits.
+// The selection resets to the first (nearest) row whenever the query changes
+// (2087/ux/05).
 func (m *model) updateMention() {
+	if cmd := activeCommand(m.ta.Value()); cmd != "" {
+		items := rankCommands(cmd)
+		m.setCompletion(compCommand, cmd, items)
+		return
+	}
 	tok := activeMention(m.ta.Value())
 	if tok == "" {
 		m.mention = nil
@@ -926,32 +931,63 @@ func (m *model) updateMention() {
 		m.files = scanFiles(m.rt.Dir)
 	}
 	matches := rankMentions(m.files, tok[1:])
-	if len(matches) == 0 {
+	items := make([]completionItem, len(matches))
+	for i, f := range matches {
+		items[i] = completionItem{value: f, label: f}
+	}
+	m.setCompletion(compFile, tok[1:], items)
+}
+
+// setCompletion installs the ranked items into the picker, capping the row
+// count and resetting the cursor to the top when the query changed so the
+// closest match is preselected (2087/ux/05).
+func (m *model) setCompletion(kind completionKind, query string, items []completionItem) {
+	if len(items) == 0 {
 		m.mention = nil
 		return
 	}
-	if len(matches) > mentionMax {
-		matches = matches[:mentionMax]
+	if len(items) > mentionMax {
+		items = items[:mentionMax]
 	}
-	if m.mention == nil {
-		m.mention = &mentionPicker{}
+	if m.mention == nil || m.mention.kind != kind {
+		m.mention = &mentionPicker{kind: kind}
 	}
-	m.mention.query = tok[1:]
-	m.mention.matches = matches
-	if m.mention.cursor >= len(matches) {
-		m.mention.cursor = len(matches) - 1
+	if m.mention.query != query {
+		m.mention.cursor = 0
+	}
+	m.mention.query = query
+	m.mention.items = items
+	if m.mention.cursor >= len(items) {
+		m.mention.cursor = len(items) - 1
 	}
 	if m.mention.cursor < 0 {
 		m.mention.cursor = 0
 	}
 }
 
-// acceptMention replaces the trailing @token with the highlighted path.
-func (m *model) acceptMention() {
-	if m.mention == nil || len(m.mention.matches) == 0 {
+// moveMention steps the highlighted row, wrapping top-to-bottom so the arrows
+// cycle rather than stall at an end (2087/ux/05).
+func (m *model) moveMention(delta int) {
+	if m.mention == nil || len(m.mention.items) == 0 {
 		return
 	}
-	sel := m.mention.matches[m.mention.cursor]
+	n := len(m.mention.items)
+	m.mention.cursor = (m.mention.cursor + delta%n + n) % n
+}
+
+// acceptMention replaces the active token with the highlighted item: a full
+// command line for /command, or the @path for a file mention.
+func (m *model) acceptMention() {
+	if m.mention == nil || len(m.mention.items) == 0 {
+		return
+	}
+	sel := m.mention.items[m.mention.cursor].value
+	if m.mention.kind == compCommand {
+		m.ta.SetValue(sel + " ")
+		m.ta.CursorEnd()
+		m.mention = nil
+		return
+	}
 	val := m.ta.Value()
 	i := strings.LastIndexAny(val, " \t\n")
 	m.ta.SetValue(val[:i+1] + "@" + sel + " ")
@@ -959,21 +995,58 @@ func (m *model) acceptMention() {
 	m.mention = nil
 }
 
-// mentionView renders the open @file overlay, or "" when the picker is closed.
+// mentionView renders the open completion overlay, or "" when it is closed. The
+// popup is auto-sized to its widest row and drawn best-match-last so the top
+// choice sits nearest the composer (2087/ux/05).
 func (m *model) mentionView() string {
-	if m.mention == nil {
+	if m.mention == nil || len(m.mention.items) == 0 {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString(m.st.dialogHint.Render("@file · ↑/↓ move · enter insert · esc cancel"))
-	for i, f := range m.mention.matches {
-		b.WriteString("\n")
-		if i == m.mention.cursor {
-			b.WriteString(m.st.pick.Render("› " + f))
-		} else {
-			b.WriteString("  " + m.st.dim.Render(f))
+	header := "@file · ↑/↓ move · enter insert · esc cancel"
+	if m.mention.kind == compCommand {
+		header = "/command · ↑/↓ move · enter select · esc cancel"
+	}
+
+	// Width: the widest visible row (label plus optional description), clamped.
+	width := lipgloss.Width(header)
+	for _, it := range m.mention.items {
+		w := lipgloss.Width(it.label)
+		if it.desc != "" {
+			w += 2 + lipgloss.Width(it.desc)
+		}
+		if w+2 > width {
+			width = w + 2
 		}
 	}
+	width = min(max(width, 24), max(m.width-2, 24))
+
+	// Rows best-match-first, then reversed so the top choice lands at the bottom
+	// next to the prompt.
+	rows := make([]string, len(m.mention.items))
+	for i, it := range m.mention.items {
+		label := it.label
+		if it.desc != "" {
+			pad := width - 4 - lipgloss.Width(label) - lipgloss.Width(it.desc)
+			if pad < 1 {
+				pad = 1
+			}
+			label = label + strings.Repeat(" ", pad) + m.st.dim.Render(it.desc)
+		}
+		if i == m.mention.cursor {
+			rows[i] = m.st.pick.Render("› " + label)
+		} else {
+			rows[i] = "  " + m.st.dim.Render(label)
+		}
+	}
+	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
+		rows[i], rows[j] = rows[j], rows[i]
+	}
+
+	var b strings.Builder
+	for _, r := range rows {
+		b.WriteString(r + "\n")
+	}
+	b.WriteString(m.st.dialogHint.Render(header))
 	return b.String()
 }
 
@@ -1101,7 +1174,7 @@ func (m *model) vpHeight() int {
 		h-- // the toast bar takes one row above the footer
 	}
 	if m.mention != nil {
-		h -= len(m.mention.matches) + 1 // overlay hint + rows
+		h -= len(m.mention.items) + 1 // overlay hint + rows
 	}
 	return max(h, 3)
 }
