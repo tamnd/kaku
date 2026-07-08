@@ -1074,6 +1074,9 @@ func (m *model) findTool(callID string) int {
 
 func (m *model) vpHeight() int {
 	h := m.height - m.ta.Height() - 2 // footer + spacing
+	if m.header(m.width) != "" {
+		h-- // the header takes one row above the transcript
+	}
 	if m.mention != nil {
 		h -= len(m.mention.matches) + 1 // overlay hint + rows
 	}
@@ -1104,6 +1107,11 @@ func (m *model) View() string {
 		return "loading..."
 	}
 	var parts []string
+	// A header line above everything carries the wordmark and live session
+	// stats; it is suppressed on a very narrow terminal (2087/ux/04).
+	if h := m.header(m.width); h != "" {
+		parts = append(parts, h)
+	}
 	// The content area shows an open dialog, then a pending permission ask,
 	// otherwise the scrollable transcript.
 	switch {
@@ -1123,19 +1131,7 @@ func (m *model) View() string {
 	}
 	parts = append(parts, m.ta.View())
 
-	u := m.rt.Agent.Usage
-	think := ""
-	if m.reasoning != "" && m.reasoning != "off" {
-		think = " · think:" + m.reasoning
-	}
-	status := fmt.Sprintf("%s · %s%s · %d in / %d out tokens", m.rt.Model, m.rt.Mode, think, u.InputTokens, u.OutputTokens)
-	if c := m.estimatedCost(u); c != "" {
-		status += " · " + c
-	}
-	if m.state == stateRunning {
-		status = m.spin.View() + " working, esc interrupts · " + status
-	}
-	parts = append(parts, m.st.foot.Render(status))
+	parts = append(parts, m.st.foot.Render(m.footerStatus(m.rt.Agent.Usage)))
 
 	return strings.Join(parts, "\n")
 }
@@ -1151,7 +1147,7 @@ func (m *model) estimatedCost(u provider.Usage) string {
 		return ""
 	}
 	total := float64(u.InputTokens)/1e6*in + float64(u.OutputTokens)/1e6*out
-	return fmt.Sprintf("$%.4f", total)
+	return formatCost(total)
 }
 
 func oneLine(s string, n int) string {

@@ -53,6 +53,7 @@ func TestRealModelTranscript(t *testing.T) {
 	_, err := agent.RunWith(ctx,
 		"Read the file hello.txt with the read tool, then reply in markdown with a bulleted list summarizing its contents.", nil)
 	if err != nil {
+		skipIfRateLimited(t, err)
 		t.Fatalf("agent run failed: %v", err)
 	}
 	m.closeThinking()
@@ -105,6 +106,7 @@ func TestRealModelEditDiff(t *testing.T) {
 	_, err := agent.RunWith(ctx,
 		"Use the edit tool to change the word 'here' to 'everywhere' in note.txt. Do not reply with anything else.", nil)
 	if err != nil {
+		skipIfRateLimited(t, err)
 		t.Fatalf("agent run failed: %v", err)
 	}
 	m.closeThinking()
@@ -126,6 +128,17 @@ func TestRealModelEditDiff(t *testing.T) {
 		t.Errorf("expected the new text in the rendered diff:\n%s", out)
 	}
 	t.Logf("rendered edit transcript:\n%s", out)
+}
+
+// skipIfRateLimited turns a provider rate-limit or quota error into a skip, so
+// the daily free-tier cap does not read as a regression.
+func skipIfRateLimited(t *testing.T, err error) {
+	t.Helper()
+	s := strings.ToLower(err.Error())
+	if strings.Contains(s, "429") || strings.Contains(s, "resource_exhausted") ||
+		strings.Contains(s, "quota") || strings.Contains(s, "rate limit") {
+		t.Skipf("model is rate-limited or out of quota, skipping: %v", err)
+	}
 }
 
 func containsTool(es []entry) bool {

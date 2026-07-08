@@ -12,10 +12,11 @@ func TestEstimatedCost(t *testing.T) {
 		Agent: &engine.Agent{},
 		Cost:  func() (float64, float64, bool) { return 3, 15, true },
 	}}
-	// 1M input at $3 + 0.5M output at $15 = 3 + 7.5 = $10.5000
+	// 1M input at $3 + 0.5M output at $15 = 3 + 7.5 = $10.50. The footer shows
+	// two decimals for a glance (2087/ux/04).
 	got := m.estimatedCost(provider.Usage{InputTokens: 1_000_000, OutputTokens: 500_000})
-	if got != "$10.5000" {
-		t.Errorf("estimatedCost = %q, want $10.5000", got)
+	if got != "$10.50" {
+		t.Errorf("estimatedCost = %q, want $10.50", got)
 	}
 }
 
