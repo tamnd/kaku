@@ -221,6 +221,10 @@ type model struct {
 	// showSidebar toggles the right-hand resource column (2087/ux/04). Off by
 	// default and auto-hidden below a width breakpoint.
 	showSidebar bool
+
+	// resumeNote is shown on the landing screen when a session was resumed,
+	// empty for a fresh start (2087/ux/04).
+	resumeNote string
 }
 
 func newModel(ctx context.Context, rt Runtime) *model {
@@ -257,17 +261,11 @@ func newModel(ctx context.Context, rt Runtime) *model {
 	}
 	m.applyReasoningPrompt()
 
-	m.entries = append(m.entries, entry{kind: "info",
-		text: fmt.Sprintf("kaku · %s · %s mode · %s", rt.Model, rt.Mode, rt.Dir)})
-	if rt.Summary != "" {
-		m.entries = append(m.entries, entry{kind: "info", text: rt.Summary})
-	}
-	for name, err := range rt.MCPFailures {
-		m.entries = append(m.entries, entry{kind: "error", text: fmt.Sprintf("mcp %s: %v", name, err)})
-	}
-	if n := len(rt.Agent.Messages); n > 0 {
-		m.entries = append(m.entries, entry{kind: "info",
-			text: fmt.Sprintf("resumed session %s (%d messages)", rt.Session.ID(), n)})
+	// Startup context lives on the landing screen while the session is empty
+	// (2087/ux/04), rather than as scrollback lines. It clears the moment the
+	// first turn lands.
+	if n := len(rt.Agent.Messages); n > 0 && rt.Session != nil {
+		m.resumeNote = fmt.Sprintf("resumed session %s (%d messages)", rt.Session.ID(), n)
 	}
 
 	rt.Agent.OnEvent = func(e engine.Event) {
@@ -1157,6 +1155,16 @@ func (m *model) View() string {
 		parts = append(parts, m.renderDialog())
 	case m.state == stateAsking && m.ask != nil:
 		parts = append(parts, m.renderAsk())
+	case m.transcriptEmpty():
+		// Empty session: the landing screen stands in for the transcript and
+		// clears the moment the first turn lands (2087/ux/04).
+		land := lipgloss.Place(m.transcriptWidth(), m.vp.Height,
+			lipgloss.Center, lipgloss.Center, m.landing(m.transcriptWidth()))
+		if m.sidebarVisible() {
+			gap := strings.Repeat(" ", sidebarGap)
+			land = lipgloss.JoinHorizontal(lipgloss.Top, land, gap, m.sidebar(m.vp.Height))
+		}
+		parts = append(parts, land)
 	case m.sidebarVisible():
 		gap := strings.Repeat(" ", sidebarGap)
 		row := lipgloss.JoinHorizontal(lipgloss.Top, m.vp.View(), gap, m.sidebar(m.vp.Height))
