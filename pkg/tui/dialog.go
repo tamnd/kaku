@@ -198,8 +198,7 @@ func (m *model) switchModel(ref string) tea.Cmd {
 	if m.rt.SwitchModel == nil {
 		m.rt.Agent.Model = ref
 		m.rt.Model = ref
-		m.entries = append(m.entries, entry{kind: "info", text: "model set to " + ref})
-		return nil
+		return m.notify(toastSuccess, "model set to "+ref)
 	}
 	if err := m.rt.SwitchModel(ref); err != nil {
 		title, body := cleanError(err)
@@ -207,8 +206,7 @@ func (m *model) switchModel(ref string) tea.Cmd {
 		return nil
 	}
 	m.rt.Model = m.rt.Agent.Model
-	m.entries = append(m.entries, entry{kind: "info", text: "model set to " + m.rt.Agent.Model})
-	return nil
+	return m.notify(toastSuccess, "model set to "+m.rt.Agent.Model)
 }
 
 const helpBody = `/help              show this help
