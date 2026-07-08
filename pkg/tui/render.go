@@ -3,6 +3,8 @@ package tui
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -157,7 +159,15 @@ func (m *model) renderTool(e *entry, width int) string {
 	glyph, gs := m.toolGlyph(e)
 	header := gs.Render(glyph) + " " + m.st.tool.Render(prettyToolName(e.tool))
 	if main := toolMainParam(e.tool, e.input); main != "" {
+		if looksLikePath(main) {
+			main = m.prettyPath(main)
+		}
 		header += " " + oneLine(main, width-len(glyph)-len(e.tool)-4)
+	}
+	// Match-list tools carry their count in the header so the row reads at a
+	// glance without expanding (2087/ux/02).
+	if n := matchCount(e); n >= 0 {
+		header += " " + m.st.dim.Render(fmt.Sprintf("(%d)", n))
 	}
 
 	body := m.toolBody(e, width)
@@ -165,6 +175,47 @@ func (m *model) renderTool(e *entry, width int) string {
 		return header
 	}
 	return header + "\n" + body
+}
+
+// prettyPath shortens a path for a header: cwd-relative when under the working
+// dir, else home-relative with a leading ~ (2087/ux/02).
+func (m *model) prettyPath(p string) string {
+	if dir := m.rt.Dir; dir != "" {
+		if rel, err := filepath.Rel(dir, p); err == nil && !strings.HasPrefix(rel, "..") {
+			return rel
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" && strings.HasPrefix(p, home) {
+		return "~" + strings.TrimPrefix(p, home)
+	}
+	return p
+}
+
+// looksLikePath reports whether a header param reads as a filesystem path rather
+// than a command, url, or query, so only paths get home-relativized.
+func looksLikePath(s string) bool {
+	if s == "" || strings.Contains(s, "://") || strings.ContainsAny(s, " \t\n") {
+		return false
+	}
+	return strings.HasPrefix(s, "/") || strings.HasPrefix(s, "./") ||
+		strings.HasPrefix(s, "~") || strings.Contains(s, "/")
+}
+
+// matchCount returns the number of result lines for a match-list tool (glob,
+// grep, ls) once it has finished, or -1 when the count does not apply.
+func matchCount(e *entry) int {
+	if e.status != toolSuccess {
+		return -1
+	}
+	switch e.tool {
+	case "glob", "grep", "ls":
+		out := strings.TrimRight(e.output, "\n")
+		if out == "" {
+			return 0
+		}
+		return strings.Count(out, "\n") + 1
+	}
+	return -1
 }
 
 // toolGlyph returns the status glyph and its style for a tool entry.
@@ -200,22 +251,49 @@ func (m *model) toolBody(e *entry, width int) string {
 		return ""
 	}
 
-	// Edits and writes render as a diff; reads as line-numbered code; anything
-	// diff-shaped is detected and shown as a diff too.
+	// Pick a body renderer by tool and by detected content type: edits and
+	// writes build a colored diff from their input so the change is visible even
+	// though the tool only returns a status line; diff-shaped output is colored
+	// directly; reads are line-numbered code; JSON is pretty-printed; markdown is
+	// rendered; everything else is plain (2087/ux/02).
 	var lines []string
 	switch {
-	case e.tool == "edit" || e.tool == "write" || e.tool == "multiedit":
-		lines = m.diffLines(out, width)
+	case e.tool == "edit" || e.tool == "write":
+		diff := editDiff(e)
+		if diff == "" {
+			// No parseable input; fall back to the status line.
+			lines = m.plainLines(out, width)
+			break
+		}
+		lines = m.diffLines(diff, width)
+		if h := diffCountHeader(m, diff); h != "" {
+			lines = append([]string{h}, lines...)
+		}
 	case looksLikeDiff(out):
 		lines = m.diffLines(out, width)
+		if h := diffCountHeader(m, out); h != "" {
+			lines = append([]string{h}, lines...)
+		}
 	case e.tool == "read" || e.tool == "view":
 		lines = m.codeLines(out, width)
+	case looksLikeJSON(out):
+		lines = m.codeLines(prettyJSON(out), width)
+	case looksLikeMarkdown(e.tool, out):
+		lines = strings.Split(m.markdown(out, width-2), "\n")
 	default:
 		lines = m.plainLines(out, width)
 	}
 
 	if e.isError {
-		lines = append([]string{m.st.warnTag.Render("!") + " " + m.st.err.Render(oneLine(out, width))}, lines...)
+		// A user-denied permission is an expected outcome, so it reads as a
+		// softer WARN rather than an ERROR (2087/ux/02).
+		if isDenial(out) {
+			tag := m.st.warnTag.Render("WARN")
+			lines = append([]string{tag + " " + m.st.dim.Render(oneLine(out, width-5))}, lines...)
+		} else {
+			tag := m.st.errTag.Render("ERROR")
+			lines = append([]string{tag + " " + m.st.err.Render(oneLine(out, width-6))}, lines...)
+		}
 	}
 
 	hidden := 0
@@ -271,6 +349,106 @@ func (m *model) diffLines(out string, width int) []string {
 		}
 	}
 	return lines
+}
+
+// editDiff builds a unified-style diff body from an edit or write tool's input:
+// edit shows old_string lines as removals and new_string lines as additions;
+// write diffs the whole content against nothing. Returns "" when the input has
+// no diffable fields so the caller falls back to the status line (2087/ux/02).
+func editDiff(e *entry) string {
+	if len(e.input) == 0 {
+		return ""
+	}
+	var in struct {
+		OldString string `json:"old_string"`
+		NewString string `json:"new_string"`
+		Content   string `json:"content"`
+	}
+	if json.Unmarshal(e.input, &in) != nil {
+		return ""
+	}
+	var b strings.Builder
+	if e.tool == "write" {
+		for line := range strings.SplitSeq(strings.TrimRight(in.Content, "\n"), "\n") {
+			b.WriteString("+" + line + "\n")
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+	if in.OldString == "" && in.NewString == "" {
+		return ""
+	}
+	for line := range strings.SplitSeq(strings.TrimRight(in.OldString, "\n"), "\n") {
+		b.WriteString("-" + line + "\n")
+	}
+	for line := range strings.SplitSeq(strings.TrimRight(in.NewString, "\n"), "\n") {
+		b.WriteString("+" + line + "\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// diffCountHeader returns a styled "+adds -dels" line for a diff body, or ""
+// when nothing was added or removed (2087/ux/02).
+func diffCountHeader(m *model, out string) string {
+	adds, dels := 0, 0
+	for l := range strings.SplitSeq(out, "\n") {
+		switch {
+		case strings.HasPrefix(l, "+") && !strings.HasPrefix(l, "+++"):
+			adds++
+		case strings.HasPrefix(l, "-") && !strings.HasPrefix(l, "---"):
+			dels++
+		}
+	}
+	if adds == 0 && dels == 0 {
+		return ""
+	}
+	return m.st.diffAdd.Render(fmt.Sprintf("+%d", adds)) + " " +
+		m.st.diffDel.Render(fmt.Sprintf("-%d", dels))
+}
+
+// looksLikeJSON reports whether a body is a single JSON object or array, so it
+// can be pretty-printed rather than shown as one dense line.
+func looksLikeJSON(s string) bool {
+	t := strings.TrimSpace(s)
+	if len(t) < 2 {
+		return false
+	}
+	if !(t[0] == '{' || t[0] == '[') {
+		return false
+	}
+	return json.Valid([]byte(t))
+}
+
+// prettyJSON indents a JSON body two spaces. It assumes looksLikeJSON already
+// passed, so a re-marshal error just returns the input unchanged.
+func prettyJSON(s string) string {
+	var v any
+	if json.Unmarshal([]byte(s), &v) != nil {
+		return s
+	}
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return s
+	}
+	return string(b)
+}
+
+// looksLikeMarkdown reports whether a fetch/web body should render as markdown.
+// Only the fetch family opts in; a heuristic on arbitrary output would wrongly
+// reflow plain tool text.
+func looksLikeMarkdown(tool, s string) bool {
+	if tool != "fetch" && tool != "web" {
+		return false
+	}
+	return strings.Contains(s, "# ") || strings.Contains(s, "](") ||
+		strings.Contains(s, "\n- ") || strings.Contains(s, "\n* ")
+}
+
+// isDenial reports whether a tool error is a user permission denial rather than
+// a real failure, so it can render as a WARN.
+func isDenial(s string) bool {
+	l := strings.ToLower(s)
+	return strings.Contains(l, "denied") || strings.Contains(l, "not permitted") ||
+		strings.Contains(l, "rejected by user")
 }
 
 // looksLikeDiff reports whether a body reads as a unified diff.
