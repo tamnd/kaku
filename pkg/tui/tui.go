@@ -3,6 +3,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/tamnd/kaku/pkg/compact"
@@ -106,10 +108,42 @@ const (
 	stateAsking
 )
 
+// entry is one item in the transcript. Simple kinds (user, info, error) use
+// only kind and text; assistant and thinking carry streamed markdown and
+// timing; tool carries the call detail and a status the glyph reflects. The
+// render cache (2087/ux/08) keeps a finished entry from re-rendering markdown on
+// every spinner tick.
 type entry struct {
-	kind string // user, assistant, tool, info, error
-	text string
+	kind string // user, assistant, thinking, tool, info, error
+	text string // raw text, markdown source, or info message
+
+	// Tool entries.
+	tool     string          // tool name, humanized at render time
+	input    json.RawMessage // tool input, for the header main param
+	output   string          // tool result body
+	isError  bool            // result was an error
+	status   toolStatus      // running, success, error, canceled
+	callID   string          // matches a tool_start to its tool_end
+	expanded bool            // body shows all lines rather than the budget
+
+	// Timing, for the thinking footer and per-turn duration.
+	start, end time.Time
+
+	// Render cache, keyed so a finished entry is rendered once.
+	cacheKey string
+	cache    string
 }
+
+// toolStatus is the lifecycle state a tool entry's glyph reflects.
+type toolStatus int
+
+const (
+	toolPending toolStatus = iota
+	toolRunning
+	toolSuccess
+	toolFail
+	toolCanceled
+)
 
 // Messages flowing from the engine goroutine into the program.
 type engineEventMsg engine.Event
@@ -168,6 +202,16 @@ type model struct {
 	// mention is the open picker, nil when the composer has no active @token.
 	files   []string
 	mention *mentionPicker
+
+	// md renders assistant and thinking markdown, cached by width and style so a
+	// stream of deltas reuses one glamour instance (2087/ux/01).
+	md      *glamour.TermRenderer
+	mdWidth int
+	mdStyle string
+
+	// turnStart marks when the active turn began, for the per-turn duration
+	// footer (2087/ux/01).
+	turnStart time.Time
 }
 
 func newModel(ctx context.Context, rt Runtime) *model {
@@ -263,6 +307,7 @@ func (m *model) submit(raw string) tea.Cmd {
 func (m *model) runInput(display, input string, images []provider.Block) tea.Cmd {
 	m.entries = append(m.entries, entry{kind: "user", text: display})
 	m.state = stateRunning
+	m.turnStart = time.Now()
 	if len(m.rt.Agent.Messages) == 0 && m.rt.Session != nil {
 		m.rt.Session.SetTitle(display)
 	}
@@ -439,11 +484,15 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case doneMsg:
 		m.state = stateIdle
 		m.cancel = nil
+		m.closeThinking()
+		m.closeAssistant()
 		if msg.err != nil {
 			title, body := cleanError(msg.err)
 			m.showError(title, body)
 			// Keep a one-line trace in scrollback for when the dialog closes.
 			m.entries = append(m.entries, entry{kind: "error", text: oneLine(title+": "+body, 120)})
+		} else {
+			m.appendTurnFooter()
 		}
 		m.refresh()
 		return m, nil
@@ -473,6 +522,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spin, cmd = m.spin.Update(msg)
+		// A running tool's glyph is the live spinner, so repaint the transcript
+		// each tick while one is in flight. A finished transcript stays quiet.
+		if m.state == stateRunning {
+			m.refresh()
+		}
 		return m, cmd
 	}
 
@@ -931,27 +985,91 @@ func (m *model) startCompact() tea.Cmd {
 func (m *model) applyEvent(e engine.Event) {
 	switch e.Type {
 	case "text":
-		if n := len(m.entries); n > 0 && m.entries[n-1].kind == "assistant" {
+		// A text delta closes any open thinking block and merges into the
+		// current assistant turn.
+		m.closeThinking()
+		if n := len(m.entries); n > 0 && m.entries[n-1].kind == "assistant" && m.entries[n-1].end.IsZero() {
 			m.entries[n-1].text += e.Text
 		} else {
-			m.entries = append(m.entries, entry{kind: "assistant", text: e.Text})
+			m.entries = append(m.entries, entry{kind: "assistant", text: e.Text, start: time.Now()})
+		}
+	case "thinking":
+		// Merge reasoning deltas into an open thinking block (2087/ux/03).
+		if n := len(m.entries); n > 0 && m.entries[n-1].kind == "thinking" && m.entries[n-1].end.IsZero() {
+			m.entries[n-1].text += e.Text
+		} else {
+			m.entries = append(m.entries, entry{kind: "thinking", text: e.Text, start: time.Now()})
 		}
 	case "tool_start":
-		arg := oneLine(string(e.ToolInput), 100)
-		m.entries = append(m.entries, entry{kind: "tool", text: fmt.Sprintf("%s(%s)", e.Tool, arg)})
+		m.closeThinking()
+		m.closeAssistant()
+		m.entries = append(m.entries, entry{
+			kind:   "tool",
+			tool:   e.Tool,
+			input:  e.ToolInput,
+			callID: e.ToolCallID,
+			status: toolRunning,
+			start:  time.Now(),
+		})
 	case "tool_end":
-		first := oneLine(e.ToolOutput, 120)
-		kind := "info"
-		if e.IsError {
-			kind = "error"
-			first = "! " + first
-		} else {
-			first = "  " + first
+		if i := m.findTool(e.ToolCallID); i >= 0 {
+			m.entries[i].output = e.ToolOutput
+			m.entries[i].isError = e.IsError
+			m.entries[i].end = time.Now()
+			if e.IsError {
+				m.entries[i].status = toolFail
+			} else {
+				m.entries[i].status = toolSuccess
+			}
 		}
-		m.entries = append(m.entries, entry{kind: kind, text: first})
 	case "info":
 		m.entries = append(m.entries, entry{kind: "info", text: e.Text})
 	}
+}
+
+// appendTurnFooter adds a muted one-line footer after a finished turn: the
+// model, provider, and wall-clock duration (2087/ux/01).
+func (m *model) appendTurnFooter() {
+	if m.turnStart.IsZero() {
+		return
+	}
+	dur := entryDuration(m.turnStart, time.Now())
+	m.turnStart = time.Time{}
+	if dur == "" {
+		return
+	}
+	m.entries = append(m.entries, entry{kind: "info", text: glyphSuccess + " " + m.rt.Model + " · " + dur})
+}
+
+// closeThinking stamps an open thinking block finished so its footer shows and
+// its render freezes.
+func (m *model) closeThinking() {
+	if n := len(m.entries); n > 0 && m.entries[n-1].kind == "thinking" && m.entries[n-1].end.IsZero() {
+		m.entries[n-1].end = time.Now()
+	}
+}
+
+// closeAssistant stamps an open assistant turn finished so its markdown gets a
+// final clean render and freezes.
+func (m *model) closeAssistant() {
+	if n := len(m.entries); n > 0 && m.entries[n-1].kind == "assistant" && m.entries[n-1].end.IsZero() {
+		m.entries[n-1].end = time.Now()
+	}
+}
+
+// findTool returns the index of the running tool entry with the given call id,
+// or the most recent running tool when the id is empty (providers that do not
+// surface a call id), or -1.
+func (m *model) findTool(callID string) int {
+	for i := len(m.entries) - 1; i >= 0; i-- {
+		if m.entries[i].kind != "tool" || m.entries[i].status != toolRunning {
+			continue
+		}
+		if callID == "" || m.entries[i].callID == callID {
+			return i
+		}
+	}
+	return -1
 }
 
 func (m *model) vpHeight() int {
@@ -966,23 +1084,14 @@ func (m *model) refresh() {
 	if !m.ready {
 		return
 	}
-	wrap := lipgloss.NewStyle().Width(m.width)
+	width := max(m.width, 10)
 	var b strings.Builder
-	for _, e := range m.entries {
-		var line string
-		switch e.kind {
-		case "user":
-			line = m.st.user.Render("you ") + e.text
-		case "assistant":
-			line = e.text
-		case "tool":
-			line = m.st.tool.Render("● ") + e.text
-		case "info":
-			line = m.st.dim.Render(e.text)
-		case "error":
-			line = m.st.err.Render(e.text)
+	for i := range m.entries {
+		block := m.renderEntry(i, width)
+		if block == "" {
+			continue
 		}
-		b.WriteString(wrap.Render(line))
+		b.WriteString(block)
 		b.WriteString("\n\n")
 	}
 	m.vp.Height = m.vpHeight()
