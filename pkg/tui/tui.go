@@ -217,6 +217,10 @@ type model struct {
 	// toastSeq guards its clear timer against a stale fire (2087/ux/04).
 	toast    *toastState
 	toastSeq int
+
+	// showSidebar toggles the right-hand resource column (2087/ux/04). Off by
+	// default and auto-hidden below a width breakpoint.
+	showSidebar bool
 }
 
 func newModel(ctx context.Context, rt Runtime) *model {
@@ -333,10 +337,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		if !m.ready {
-			m.vp = viewport.New(msg.Width, m.vpHeight())
+			m.vp = viewport.New(m.transcriptWidth(), m.vpHeight())
 			m.ready = true
 		} else {
-			m.vp.Width = msg.Width
+			m.vp.Width = m.transcriptWidth()
 			m.vp.Height = m.vpHeight()
 		}
 		m.ta.SetWidth(msg.Width - 2)
@@ -348,6 +352,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.dialog != nil {
 			cmd := m.dialogKey(msg)
 			return m, cmd
+		}
+		// Toggling the sidebar works in any state. ctrl+o is used rather than
+		// ctrl+s, which many terminals swallow as flow control (2087/ux/04).
+		if msg.String() == "ctrl+o" {
+			m.toggleSidebar()
+			return m, nil
 		}
 		switch m.state {
 		case stateAsking:
@@ -572,6 +582,9 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 			return nil, true
 		}
 		return m.switchModel(rest), true
+	case "sidebar":
+		m.toggleSidebar()
+		return nil, true
 	case "compact":
 		return m.startCompact(), true
 	case "clear":
@@ -1095,11 +1108,24 @@ func (m *model) vpHeight() int {
 	return max(h, 3)
 }
 
+// toggleSidebar flips the sidebar and resizes the transcript viewport to match,
+// notifying when it cannot show because the terminal is too narrow.
+func (m *model) toggleSidebar() {
+	m.showSidebar = !m.showSidebar
+	if m.showSidebar && m.width < sidebarBreakpoint {
+		m.notify(toastInfo, "terminal too narrow for the sidebar")
+	}
+	if m.ready {
+		m.vp.Width = m.transcriptWidth()
+		m.refresh()
+	}
+}
+
 func (m *model) refresh() {
 	if !m.ready {
 		return
 	}
-	width := max(m.width, 10)
+	width := m.transcriptWidth()
 	var b strings.Builder
 	for i := range m.entries {
 		block := m.renderEntry(i, width)
@@ -1125,12 +1151,16 @@ func (m *model) View() string {
 		parts = append(parts, h)
 	}
 	// The content area shows an open dialog, then a pending permission ask,
-	// otherwise the scrollable transcript.
+	// otherwise the scrollable transcript, optionally beside the sidebar.
 	switch {
 	case m.dialog != nil:
 		parts = append(parts, m.renderDialog())
 	case m.state == stateAsking && m.ask != nil:
 		parts = append(parts, m.renderAsk())
+	case m.sidebarVisible():
+		gap := strings.Repeat(" ", sidebarGap)
+		row := lipgloss.JoinHorizontal(lipgloss.Top, m.vp.View(), gap, m.sidebar(m.vp.Height))
+		parts = append(parts, row)
 	default:
 		parts = append(parts, m.vp.View())
 	}
