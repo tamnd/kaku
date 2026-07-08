@@ -19,6 +19,7 @@ type Event struct {
 	Type       string // "text", "thinking", "tool_start", "tool_end", "turn", "info"
 	Text       string // delta for text/thinking, message for info
 	Tool       string
+	ToolCallID string // matches a tool_start to its tool_end
 	ToolInput  json.RawMessage
 	ToolOutput string
 	IsError    bool
@@ -397,7 +398,7 @@ func (a *Agent) execTool(ctx context.Context, use provider.Block) (out string, i
 		return "blocked by hook: " + res.Message, true
 	}
 
-	a.emit(Event{Type: "tool_start", Tool: use.Name, ToolInput: use.Input})
+	a.emit(Event{Type: "tool_start", Tool: use.Name, ToolCallID: use.ID, ToolInput: use.Input})
 
 	out, isErr = a.safeRun(ctx, t, use.Input)
 	if len(out) > maxToolOutput {
@@ -410,7 +411,7 @@ func (a *Agent) execTool(ctx context.Context, use provider.Block) (out string, i
 	a.hooks(ctx, "post_tool", use.Name, map[string]any{
 		"tool": use.Name, "input": use.Input, "output": out, "is_error": isErr,
 	})
-	a.emit(Event{Type: "tool_end", Tool: use.Name, ToolOutput: out, IsError: isErr})
+	a.emit(Event{Type: "tool_end", Tool: use.Name, ToolCallID: use.ID, ToolOutput: out, IsError: isErr})
 	return out, isErr
 }
 

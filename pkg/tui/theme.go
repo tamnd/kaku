@@ -26,6 +26,13 @@ type Theme struct {
 	Text      string `json:"text,omitempty"`  // assistant output ("" = default fg)
 	Muted     string `json:"muted,omitempty"` // hints, footer, info lines
 	Border    string `json:"border,omitempty"`
+
+	// Diff colors the add/del lines of a diff body and permission preview. Empty
+	// fields fall back to Success and Error, so existing themes need no change.
+	Diff struct {
+		Add string `json:"add,omitempty"`
+		Del string `json:"del,omitempty"`
+	} `json:"diff,omitzero"`
 }
 
 // builtinThemes are always available by name, even with no theme files on disk.
@@ -91,6 +98,14 @@ type styles struct {
 	user, tool, dim, err, foot, prompt        lipgloss.Style
 	dialogTitle, dialogHint, dialogDesc, pick lipgloss.Style
 	borderAccent, borderError, borderWarn     lipgloss.Color
+
+	// Rich transcript styles (2087/ux). Tool status glyphs, the thinking box,
+	// the error tag, and diff add/del lines.
+	toolRunning, toolOK, toolErr, toolWarn lipgloss.Style
+	thinkBox, thinkFoot                    lipgloss.Style
+	errTag, warnTag                        lipgloss.Style
+	diffAdd, diffDel, diffHead             lipgloss.Style
+	lineNum                                lipgloss.Style
 }
 
 func color(s string) lipgloss.Color { return lipgloss.Color(s) }
@@ -111,7 +126,31 @@ func newStyles(t Theme) styles {
 		borderAccent: color(t.Accent),
 		borderError:  color(t.Error),
 		borderWarn:   color(t.Warning),
+
+		toolRunning: lipgloss.NewStyle().Foreground(color(t.Warning)),
+		toolOK:      lipgloss.NewStyle().Foreground(color(t.Success)),
+		toolErr:     lipgloss.NewStyle().Foreground(color(t.Error)),
+		toolWarn:    lipgloss.NewStyle().Foreground(color(t.Warning)),
+		thinkBox: lipgloss.NewStyle().Foreground(color(t.Muted)).
+			Border(lipgloss.RoundedBorder(), false, false, false, true).
+			BorderForeground(color(t.Muted)).PaddingLeft(1),
+		thinkFoot: lipgloss.NewStyle().Foreground(color(t.Muted)).Italic(true),
+		errTag:    lipgloss.NewStyle().Foreground(color(t.Error)).Bold(true),
+		warnTag:   lipgloss.NewStyle().Foreground(color(t.Warning)).Bold(true),
+		diffAdd:   lipgloss.NewStyle().Foreground(color(diffOr(t.Diff.Add, t.Success))),
+		diffDel:   lipgloss.NewStyle().Foreground(color(diffOr(t.Diff.Del, t.Error))),
+		diffHead:  lipgloss.NewStyle().Foreground(color(t.Muted)).Bold(true),
+		lineNum:   lipgloss.NewStyle().Foreground(color(t.Muted)),
 	}
+}
+
+// diffOr returns the first non-empty of the two colors, so a theme without
+// explicit diff roles falls back to its success/error colors.
+func diffOr(a, b string) string {
+	if a != "" {
+		return a
+	}
+	return b
 }
 
 // pickTheme returns the theme for name, falling back to dark.
