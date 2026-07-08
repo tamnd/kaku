@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/textarea"
@@ -75,7 +76,7 @@ func mentionModel(files []string, value string) *model {
 func TestUpdateMentionOpensAndCloses(t *testing.T) {
 	m := mentionModel([]string{"main.go", "makefile"}, "look at @ma")
 	m.updateMention()
-	if m.mention == nil || len(m.mention.matches) != 2 {
+	if m.mention == nil || len(m.mention.items) != 2 {
 		t.Fatalf("expected the picker open with 2 matches, got %+v", m.mention)
 	}
 	m.ta.SetValue("look at @main.go ")
@@ -94,6 +95,99 @@ func TestAcceptMentionInsertsPath(t *testing.T) {
 	}
 	if m.mention != nil {
 		t.Error("accepting should close the picker")
+	}
+}
+
+func TestRankMentionsTiers(t *testing.T) {
+	// exact basename beats prefix beats path-segment beats a loose subsequence.
+	files := []string{
+		"pkg/config/loader.go", // "config" is a path segment
+		"config.go",            // exact basename
+		"configure.go",         // basename prefix
+		"cfg/other.go",         // subsequence c-f-g only via "cfg"... not "config"
+		"deep/reconfig.go",     // basename contains
+	}
+	got := rankMentions(files, "config")
+	if got[0] != "config.go" {
+		t.Fatalf("exact basename should rank first, got %v", got)
+	}
+	if got[1] != "configure.go" {
+		t.Errorf("basename prefix should rank second, got %v", got)
+	}
+	// "cfg/other.go" has no "config" subsequence, so it drops out.
+	if slices.Contains(got, "cfg/other.go") {
+		t.Errorf("non-matching file leaked in: %v", got)
+	}
+}
+
+func TestActiveCommand(t *testing.T) {
+	cases := map[string]string{
+		"/mod":       "/mod",
+		"/":          "/",
+		"/model foo": "", // space: a command with an arg, not completing
+		"hello":      "",
+		"a/b":        "", // a path, not a leading slash
+	}
+	for in, want := range cases {
+		if got := activeCommand(in); got != want {
+			t.Errorf("activeCommand(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRankCommandsPrefixFirst(t *testing.T) {
+	got := rankCommands("/s")
+	if len(got) == 0 {
+		t.Fatal("expected /s to match some commands")
+	}
+	// Every prefix match (/skills, /sessions, /sidebar) sorts before any
+	// subsequence-only hit.
+	for _, it := range got[:3] {
+		if !strings.HasPrefix(it.value, "/s") {
+			t.Errorf("prefix matches should lead, got %q in the top three", it.value)
+		}
+	}
+}
+
+func TestUpdateMentionCommandPopup(t *testing.T) {
+	m := mentionModel(nil, "/th")
+	m.updateMention()
+	if m.mention == nil || m.mention.kind != compCommand {
+		t.Fatalf("expected a command popup, got %+v", m.mention)
+	}
+	// /theme and /thinking both match "/th".
+	if len(m.mention.items) < 2 {
+		t.Errorf("expected at least two /th matches, got %d", len(m.mention.items))
+	}
+	m.acceptMention()
+	if got := m.ta.Value(); !strings.HasPrefix(got, "/th") || !strings.HasSuffix(got, " ") {
+		t.Errorf("accepting a command should fill the line and trail a space, got %q", got)
+	}
+}
+
+func TestMoveMentionWraps(t *testing.T) {
+	m := mentionModel([]string{"a.go", "b.go", "c.go"}, "@")
+	m.updateMention()
+	n := len(m.mention.items)
+	m.mention.cursor = 0
+	m.moveMention(-1)
+	if m.mention.cursor != n-1 {
+		t.Errorf("up from the top should wrap to the bottom, got %d", m.mention.cursor)
+	}
+	m.moveMention(1)
+	if m.mention.cursor != 0 {
+		t.Errorf("down from the bottom should wrap to the top, got %d", m.mention.cursor)
+	}
+}
+
+func TestMentionSelectionResetsOnQueryChange(t *testing.T) {
+	m := mentionModel([]string{"alpha.go", "alto.go", "album.go"}, "@al")
+	m.updateMention()
+	m.mention.cursor = 2
+	m.ta.SetValue("@alp")
+	m.updateMention()
+	if m.mention.cursor != 0 {
+		t.Errorf("a changed query resets the selection to the top, got %d", m.mention.cursor)
 	}
 }
 
