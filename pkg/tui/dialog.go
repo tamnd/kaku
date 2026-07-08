@@ -216,6 +216,7 @@ const helpBody = `/help              show this help
 /init              scan the repo and write a starter KAKU.md
 /new               start a fresh session
 /sessions          switch between saved sessions
+/sidebar           toggle the resource sidebar (or ctrl+o)
 /name <title>      rename the current session
 /theme [name]      switch the color theme, or list the choices
 /thinking [level]  show or set the reasoning level
