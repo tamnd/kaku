@@ -212,6 +212,11 @@ type model struct {
 	// turnStart marks when the active turn began, for the per-turn duration
 	// footer (2087/ux/01).
 	turnStart time.Time
+
+	// toast is the transient notice shown over the footer, nil when none.
+	// toastSeq guards its clear timer against a stale fire (2087/ux/04).
+	toast    *toastState
+	toastSeq int
 }
 
 func newModel(ctx context.Context, rt Runtime) *model {
@@ -402,17 +407,17 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "model_cycle":
 				cmd := m.cycleModel(1)
 				m.refresh()
-				return m, cmd
+				return m, m.withToast(cmd)
 			case "reasoning_cycle":
 				m.cycleReasoning()
 				m.refresh()
-				return m, nil
+				return m, m.withToast(nil)
 			case "paste_image":
 				if note := m.pasteImage(); note != "" {
-					m.entries = append(m.entries, entry{kind: "info", text: note})
+					m.notify(toastInfo, note)
 				}
 				m.refresh()
-				return m, nil
+				return m, m.withToast(nil)
 			case "editor":
 				// Hand the draft to $EDITOR for a real editing buffer, then load
 				// whatever comes back into the composer.
@@ -434,11 +439,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if cmd, handled := m.slash(raw); handled {
 					m.refresh()
-					return m, cmd
+					return m, m.withToast(cmd)
 				}
 				cmd := m.submit(raw)
 				m.refresh()
-				return m, cmd
+				return m, m.withToast(cmd)
 			}
 		}
 		var cmd tea.Cmd
@@ -449,6 +454,10 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.refresh()
 		}
 		return m, cmd
+
+	case toastMsg:
+		m.clearToast(msg.seq)
+		return m, nil
 
 	case engineEventMsg:
 		m.applyEvent(engine.Event(msg))
@@ -596,7 +605,7 @@ func (m *model) slash(raw string) (tea.Cmd, bool) {
 			m.showError("Could not rename", err.Error())
 			return nil, true
 		}
-		m.entries = append(m.entries, entry{kind: "info", text: "session named: " + rest})
+		m.notify(toastSuccess, "session named: "+rest)
 		return nil, true
 	case "export":
 		if m.rt.Export == nil {
@@ -641,7 +650,7 @@ func (m *model) setTheme(name string) {
 	m.themeName = name
 	m.st = newStyles(m.themes[name])
 	m.ta.Prompt = m.st.prompt.Render("> ")
-	m.entries = append(m.entries, entry{kind: "info", text: "theme: " + name})
+	m.notify(toastSuccess, "theme: "+name)
 }
 
 // themeList renders the available themes with the current one marked.
@@ -736,7 +745,7 @@ func (m *model) setReasoning(level string) {
 	}
 	m.reasoning = level
 	m.applyReasoningPrompt()
-	m.entries = append(m.entries, entry{kind: "info", text: "thinking: " + level})
+	m.notify(toastInfo, "thinking: "+level)
 }
 
 // reasoningLabel is the current level for display, "default" when unset.
@@ -1077,6 +1086,9 @@ func (m *model) vpHeight() int {
 	if m.header(m.width) != "" {
 		h-- // the header takes one row above the transcript
 	}
+	if m.toast != nil {
+		h-- // the toast bar takes one row above the footer
+	}
 	if m.mention != nil {
 		h -= len(m.mention.matches) + 1 // overlay hint + rows
 	}
@@ -1131,6 +1143,10 @@ func (m *model) View() string {
 	}
 	parts = append(parts, m.ta.View())
 
+	// A transient toast, when present, paints a bar just above the footer.
+	if tv := m.toastView(m.width); tv != "" {
+		parts = append(parts, tv)
+	}
 	parts = append(parts, m.st.foot.Render(m.footerStatus(m.rt.Agent.Usage)))
 
 	return strings.Join(parts, "\n")

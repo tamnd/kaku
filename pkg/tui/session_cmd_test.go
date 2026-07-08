@@ -17,8 +17,9 @@ func TestSlashNameCallsRename(t *testing.T) {
 	if got != "release prep" {
 		t.Errorf("rename got %q", got)
 	}
-	if len(m.entries) == 0 || !strings.Contains(m.entries[len(m.entries)-1].text, "release prep") {
-		t.Errorf("missing confirmation entry: %+v", m.entries)
+	// The confirmation is a transient toast, not a permanent transcript line.
+	if m.toast == nil || !strings.Contains(m.toast.text, "release prep") {
+		t.Errorf("missing confirmation toast: %+v", m.toast)
 	}
 }
 
