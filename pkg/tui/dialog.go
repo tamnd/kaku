@@ -15,6 +15,7 @@ type ModelChoice struct {
 	Ref       string
 	Label     string
 	Reasoning string
+	Context   int // context-window size in tokens, 0 when unknown
 	Current   bool
 }
 

@@ -659,6 +659,7 @@ func modelChoices(cfg *config.Config, current string) []tui.ModelChoice {
 			Ref:       ref,
 			Label:     label,
 			Reasoning: mi.Reasoning,
+			Context:   mi.Context,
 			Current:   mi.Model == current,
 		})
 	}
