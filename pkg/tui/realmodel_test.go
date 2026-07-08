@@ -74,6 +74,60 @@ func TestRealModelTranscript(t *testing.T) {
 	t.Logf("rendered transcript:\n%s", out)
 }
 
+// TestRealModelEditDiff drives a live model to edit a file and asserts the
+// transcript shows a real diff built from the edit's input, with a +/- count
+// header (2087/ux1). Skipped unless GEMINI_API_KEY is set.
+func TestRealModelEditDiff(t *testing.T) {
+	key := os.Getenv("GEMINI_API_KEY")
+	if key == "" {
+		t.Skip("GEMINI_API_KEY not set; skipping real-model edit test")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/note.txt", []byte("kaku was here\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	prov := openai.New(key, "https://generativelanguage.googleapis.com/v1beta/openai", "gemini")
+	reg := tool.NewRegistry(builtin.All(dir, nil, nil)...)
+	agent := &engine.Agent{
+		Provider: prov,
+		Model:    "gemini-2.5-flash-lite",
+		Tools:    reg,
+		Perm:     &perm.Engine{Mode: perm.ModeAuto, ReadOnly: reg.ReadOnly},
+	}
+
+	m := newModel(context.Background(), Runtime{Agent: agent, Model: "gemini-2.5-flash-lite", Mode: "auto", Dir: dir})
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	agent.OnEvent = func(e engine.Event) { m.applyEvent(engine.Event(e)) }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	_, err := agent.RunWith(ctx,
+		"Use the edit tool to change the word 'here' to 'everywhere' in note.txt. Do not reply with anything else.", nil)
+	if err != nil {
+		t.Fatalf("agent run failed: %v", err)
+	}
+	m.closeThinking()
+	m.closeAssistant()
+	m.refresh()
+	out := m.View()
+
+	var edited bool
+	for i := range m.entries {
+		e := &m.entries[i]
+		if e.kind == "tool" && e.tool == "edit" && e.status == toolSuccess {
+			edited = true
+		}
+	}
+	if !edited {
+		t.Fatalf("expected a successful edit tool entry, got kinds %v", entryKinds(m.entries))
+	}
+	if !strings.Contains(out, "everywhere") {
+		t.Errorf("expected the new text in the rendered diff:\n%s", out)
+	}
+	t.Logf("rendered edit transcript:\n%s", out)
+}
+
 func containsTool(es []entry) bool {
 	for _, e := range es {
 		if e.kind == "tool" {
